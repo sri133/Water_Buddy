@@ -1,0 +1,23 @@
+{
+    "saif": {
+        "profile": {
+            "Name": "saif",
+            "Age": "17",
+            "Country": "India",
+            "Language": "",
+            "Height": "175 cm",
+            "Weight": "56.0 kg",
+            "BMI": 18.29,
+            "Health Condition": "Fair",
+            "Health Problems": "i have kidney stone"
+        },
+        "report": {
+            "time_format": "12-hour",
+            "start_time": "08:00 AM",
+            "end_time": "10:00 PM",
+            "daily_goal": 3.0,
+            "frequency": "5 minutes"
+        },
+        "ai_water_goal": 3.0
+    }
+}
