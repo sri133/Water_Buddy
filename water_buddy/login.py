@@ -306,15 +306,21 @@ elif st.session_state.page == "home":
     water_input = st.text_input("Enter water amount (in ml):", key="water_input")
 
     if st.button("➕ Add Water"):
-        try:
-            value = re.sub("[^0-9.]", "", water_input)
-            ml = float(value)
-            liters = ml / 1000
-            st.session_state.total_intake += liters
-            st.session_state.water_intake_log.append(f"{ml} ml")
-            st.success(f"✅ Added {ml} ml of water!")
-            st.rerun()
-        except:
+    if water_input.strip() == "":
+        st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
+    else:
+        value = re.sub(r"[^0-9.]", "", water_input)
+        if value:
+            try:
+                ml = float(value)
+                liters = ml / 1000
+                st.session_state.total_intake += liters
+                st.session_state.water_intake_log.append(f"{ml} ml")
+                st.success(f"✅ Added {ml} ml of water!")
+                st.rerun()
+            except ValueError:
+                st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
+        else:
             st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
 
     if st.session_state.water_intake_log:
@@ -358,3 +364,4 @@ elif st.session_state.page == "home":
 
         for speaker, msg in reversed(st.session_state.chat_history[-10:]):
             st.write(f"**{speaker}:** {msg}")
+
