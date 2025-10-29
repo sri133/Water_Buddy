@@ -6,7 +6,9 @@ import re
 from datetime import time
 import google.generativeai as genai
 
-# ✅ Load API key from Streamlit Secrets or .env
+# -------------------------------
+# ✅ API Key Setup
+# -------------------------------
 api_key = None
 if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
@@ -22,11 +24,13 @@ else:
 
 model = genai.GenerativeModel("models/gemini-2.5-flash")
 
-# ✅ Streamlit Page Config (only once)
-st.set_page_config(page_title="HP PARTNER", page_icon="💧", layout="centered")
+# -------------------------------
+# ✅ Streamlit Page Config
+# -------------------------------
+st.set_page_config(page_title="Water Buddy", page_icon="💧", layout="centered")
 
 # -------------------------------
-# File setup
+# ✅ File Setup
 # -------------------------------
 CREDENTIALS_FILE = "users.json"
 USER_DATA_FILE = "user_data.json"
@@ -44,7 +48,7 @@ else:
     user_data = {}
 
 # -------------------------------
-# Streamlit session setup
+# ✅ Streamlit Session Setup
 # -------------------------------
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -64,7 +68,7 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 # -------------------------------
-# Helper Functions
+# ✅ Helper Functions
 # -------------------------------
 def save_user_data(data):
     with open(USER_DATA_FILE, "w") as f:
@@ -77,10 +81,10 @@ def go_to_page(page_name: str):
 countries = [c.name for c in pycountry.countries]
 
 # -------------------------------
-# LOGIN PAGE
+# ✅ LOGIN PAGE
 # -------------------------------
 if st.session_state.page == "login":
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Buddy</h1>", unsafe_allow_html=True)
     st.markdown("### Login or Sign Up to Continue")
 
     option = st.radio("Choose Option", ["Login", "Sign Up"])
@@ -112,7 +116,7 @@ if st.session_state.page == "login":
                 st.error("❌ Invalid username or password.")
 
 # -------------------------------
-# PERSONAL SETTINGS PAGE
+# ✅ PERSONAL SETTINGS PAGE
 # -------------------------------
 elif st.session_state.page == "settings":
     if not st.session_state.logged_in:
@@ -121,7 +125,7 @@ elif st.session_state.page == "settings":
     username = st.session_state.username
     saved = user_data.get(username, {}).get("profile", {})
 
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Personal Settings</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>⚙️ Personal Settings</h1>", unsafe_allow_html=True)
 
     name = st.text_input("Name", value=saved.get("Name", username))
     age = st.text_input("Age", value=saved.get("Age", ""))
@@ -218,7 +222,7 @@ elif st.session_state.page == "settings":
         go_to_page("water_profile")
 
 # -------------------------------
-# WATER PROFILE PAGE
+# ✅ WATER PROFILE PAGE
 # -------------------------------
 elif st.session_state.page == "water_profile":
     username = st.session_state.username
@@ -262,11 +266,11 @@ elif st.session_state.page == "water_profile":
         go_to_page("home")
 
 # -------------------------------
-# HOME PAGE
+# ✅ HOME PAGE
 # -------------------------------
 elif st.session_state.page == "home":
     username = st.session_state.username
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Buddy</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align:center; color:gray;'>Welcome back! Stay hydrated 💦</p>", unsafe_allow_html=True)
     st.write("---")
 
@@ -305,23 +309,24 @@ elif st.session_state.page == "home":
     st.subheader("💧 Add Water Intake")
     water_input = st.text_input("Enter water amount (in ml):", key="water_input")
 
+    # ✅ Fixed Add Water logic
     if st.button("➕ Add Water"):
-    if water_input.strip() == "":
-        st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
-    else:
-        value = re.sub(r"[^0-9.]", "", water_input)
-        if value:
-            try:
-                ml = float(value)
-                liters = ml / 1000
-                st.session_state.total_intake += liters
-                st.session_state.water_intake_log.append(f"{ml} ml")
-                st.success(f"✅ Added {ml} ml of water!")
-                st.rerun()
-            except ValueError:
-                st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
-        else:
+        if water_input.strip() == "":
             st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
+        else:
+            value = re.sub(r"[^0-9.]", "", water_input)
+            if value:
+                try:
+                    ml = float(value)
+                    liters = ml / 1000
+                    st.session_state.total_intake += liters
+                    st.session_state.water_intake_log.append(f"{ml} ml")
+                    st.success(f"✅ Added {ml} ml of water!")
+                    st.rerun()
+                except ValueError:
+                    st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
+            else:
+                st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
 
     if st.session_state.water_intake_log:
         st.write("### Today's Log:")
@@ -364,4 +369,5 @@ elif st.session_state.page == "home":
 
         for speaker, msg in reversed(st.session_state.chat_history[-10:]):
             st.write(f"**{speaker}:** {msg}")
+
 
