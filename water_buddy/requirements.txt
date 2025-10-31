@@ -3,4 +3,5 @@ google-generativeai
 python-dotenv
 pycountry
 plotly
+pandas
 
