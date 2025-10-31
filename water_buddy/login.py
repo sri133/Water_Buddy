@@ -269,16 +269,17 @@ elif st.session_state.page == "home":
     water_input = st.text_input("Enter water amount (in ml):", key="water_input")
 
     if st.button("➕ Add Water"):
-        try:
-            value = re.sub("[^0-9.]", "", water_input)
-            ml = float(value)
-            liters = ml / 1000
-            st.session_state.total_intake += liters
-            st.session_state.water_intake_log.append(f"{ml} ml")
-            st.success(f"✅ Added {ml} ml of water!")
-            st.rerun()
-        except:
-            st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
+    value = re.sub("[^0-9.]", "", water_input).strip()
+    if value and re.match(r"^\d+(\.\d+)?$", value):
+        ml = float(value)
+        liters = ml / 1000
+        st.session_state.total_intake += liters
+        st.session_state.water_intake_log.append(f"{ml} ml")
+        st.success(f"✅ Added {ml} ml of water!")
+        st.session_state.water_input = ""  # 💧 Clear the input after adding
+        st.rerun()
+    else:
+        st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
 
     if st.session_state.water_intake_log:
         st.write("### Today's Log:")
@@ -397,3 +398,4 @@ elif st.session_state.page == "daily_streak":
         st.info("You're on Daily Streak")
 
 # ❤️ With love, fixed and working beautifully for you 💧
+
