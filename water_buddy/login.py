@@ -1,397 +1,171 @@
 import streamlit as st
-import json
-import os
-import pycountry
-import re
-import pandas as pd
-from datetime import datetime
+import json, os, pycountry, re
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import google.generativeai as genai
+import pandas as pd
 
-# -------------------------------
-# ✅ Load API key
-# -------------------------------
-api_key = None
-if "GOOGLE_API_KEY" in st.secrets:
-    api_key = st.secrets["GOOGLE_API_KEY"]
-else:
-    load_dotenv()
-    api_key = os.getenv("GOOGLE_API_KEY")
+load_dotenv()
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-if not api_key:
-    st.error("❌ Missing API key. Please add GOOGLE_API_KEY in your .env or Streamlit Secrets.")
-else:
-    genai.configure(api_key=api_key)
+USERS_FILE = "users.json"
+DATA_FILE = "user_data.json"
 
-model = genai.GenerativeModel("models/gemini-2.5-flash")
+# Initialize files
+for file in [USERS_FILE, DATA_FILE]:
+    if not os.path.exists(file):
+        with open(file, "w") as f:
+            json.dump({}, f)
 
-# -------------------------------
-# ✅ Streamlit Page Config
-# -------------------------------
-st.set_page_config(page_title="HP PARTNER", page_icon="💧", layout="centered")
+# Utility functions
+def load_json(file):
+    with open(file, "r") as f:
+        return json.load(f)
 
-# -------------------------------
-# File setup
-# -------------------------------
-CREDENTIALS_FILE = "users.json"
-USER_DATA_FILE = "user_data.json"
-
-if os.path.exists(CREDENTIALS_FILE):
-    with open(CREDENTIALS_FILE, "r") as f:
-        users = json.load(f)
-else:
-    users = {}
-
-if os.path.exists(USER_DATA_FILE):
-    with open(USER_DATA_FILE, "r") as f:
-        user_data = json.load(f)
-else:
-    user_data = {}
-
-# -------------------------------
-# Streamlit session setup
-# -------------------------------
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "page" not in st.session_state:
-    st.session_state.page = "login"
-if "username" not in st.session_state:
-    st.session_state.username = ""
-if "water_intake_log" not in st.session_state:
-    st.session_state.water_intake_log = []
-if "total_intake" not in st.session_state:
-    st.session_state.total_intake = 0.0
-
-# -------------------------------
-# Helper Functions
-# -------------------------------
-def save_user_data(data):
-    with open(USER_DATA_FILE, "w") as f:
+def save_json(file, data):
+    with open(file, "w") as f:
         json.dump(data, f, indent=4)
 
-def go_to_page(page_name: str):
-    st.session_state.page = page_name
-    st.rerun()
+# --- User Authentication ---
+def signup(username, password):
+    users = load_json(USERS_FILE)
+    if username in users:
+        return False
+    users[username] = {"password": password}
+    save_json(USERS_FILE, users)
+    return True
 
-countries = [c.name for c in pycountry.countries]
+def login(username, password):
+    users = load_json(USERS_FILE)
+    return username in users and users[username]["password"] == password
 
-# -------------------------------
-# LOGIN PAGE
-# -------------------------------
-if st.session_state.page == "login":
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
-    st.markdown("### Login or Sign Up to Continue")
+# --- AI Goal Calculation ---
+def get_ai_water_goal(profile):
+    try:
+        prompt = f"""
+        Based on this user info: 
+        Age: {profile.get('age')} 
+        Height: {profile.get('height')} cm
+        Weight: {profile.get('weight')} kg
+        Health Condition: {profile.get('health')}
+        Country: {profile.get('country')}
+        Suggest daily water intake in liters.
+        """
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        res = model.generate_content(prompt)
+        text = res.text.lower()
+        match = re.search(r"(\d+(\.\d+)?)\s*(l|litre|liters)", text)
+        return float(match.group(1)) if match else 2.5
+    except Exception:
+        return 2.5
 
-    option = st.radio("Choose Option", ["Login", "Sign Up"])
-    username = st.text_input("Enter Username")
-    password = st.text_input("Enter Password", type="password")
+# --- App ---
+st.set_page_config(page_title="💧HP PARTNER", layout="centered")
+st.title("💧 HP PARTNER")
 
-    if st.button("Submit"):
-        if option == "Sign Up":
-            if username in users:
-                st.error("❌ Username already exists.")
-            elif username == "" or password == "":
-                st.error("❌ Username and password cannot be empty.")
-            else:
-                users[username] = password
-                with open(CREDENTIALS_FILE, "w") as f:
-                    json.dump(users, f)
-                user_data[username] = {}
-                save_user_data(user_data)
-                st.success("✅ Account created successfully! Please login.")
-        elif option == "Login":
-            if username in users and users[username] == password:
-                st.session_state.logged_in = True
-                st.session_state.username = username
-                if username in user_data and "profile" in user_data[username]:
-                    go_to_page("home")
-                else:
-                    go_to_page("settings")
-            else:
-                st.error("❌ Invalid username or password.")
+menu = ["Login", "Sign Up"]
+choice = st.sidebar.radio("Menu", menu)
 
-# -------------------------------
-# PERSONAL SETTINGS PAGE
-# -------------------------------
-elif st.session_state.page == "settings":
-    if not st.session_state.logged_in:
-        go_to_page("login")
+user_data = load_json(DATA_FILE)
 
-    username = st.session_state.username
-    saved = user_data.get(username, {}).get("profile", {})
-
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Personal Settings</h1>", unsafe_allow_html=True)
-
-    name = st.text_input("Name", value=saved.get("Name", username))
-    age = st.text_input("Age", value=saved.get("Age", ""))
-    country = st.selectbox("Country", countries, index=countries.index(saved.get("Country", "India")))
-    language = st.text_input("Language", value=saved.get("Language", ""))
-
-    st.write("---")
-
-    height_unit = st.radio("Height Unit", ["cm", "feet"], horizontal=True)
-    height = st.number_input(
-        f"Height ({height_unit})", value=float(saved.get("Height", "0").split()[0]) if "Height" in saved else 0.0
-    )
-
-    weight_unit = st.radio("Weight Unit", ["kg", "lbs"], horizontal=True)
-    weight = st.number_input(
-        f"Weight ({weight_unit})", value=float(saved.get("Weight", "0").split()[0]) if "Weight" in saved else 0.0
-    )
-
-    def calculate_bmi(weight, height, weight_unit, height_unit):
-        if height_unit == "feet":
-            height_m = height * 0.3048
+if choice == "Sign Up":
+    st.subheader("Create Account")
+    user = st.text_input("Username")
+    pwd = st.text_input("Password", type="password")
+    if st.button("Sign Up"):
+        if signup(user, pwd):
+            st.success("Account created! Please login.")
         else:
-            height_m = height / 100
-        if weight_unit == "lbs":
-            weight_kg = weight * 0.453592
+            st.error("Username already exists!")
+
+elif choice == "Login":
+    st.subheader("Login to Continue")
+    user = st.text_input("Username")
+    pwd = st.text_input("Password", type="password")
+    if st.button("Login"):
+        if login(user, pwd):
+            st.session_state["user"] = user
+            st.success("Logged in successfully!")
         else:
-            weight_kg = weight
-        return round(weight_kg / (height_m ** 2), 2) if height_m > 0 else 0
+            st.error("Invalid credentials!")
 
-    bmi = calculate_bmi(weight, height, weight_unit, height_unit)
-    st.write(f"**Your BMI is:** {bmi}")
+if "user" in st.session_state:
+    username = st.session_state["user"]
+    st.sidebar.success(f"Welcome {username}!")
 
-    health_condition = st.radio(
-        "Health condition", ["Excellent", "Fair", "Poor"],
-        horizontal=True,
-        index=["Excellent", "Fair", "Poor"].index(saved.get("Health Condition", "Excellent"))
-    )
-    health_problems = st.text_area("Health problems", value=saved.get("Health Problems", ""))
+    if username not in user_data:
+        user_data[username] = {
+            "profile": {},
+            "water_goal": 2.5,
+            "intake": [],
+        }
 
-    st.write("---")
+    profile = user_data[username]["profile"]
+    goal = user_data[username]["water_goal"]
 
-    old_profile = user_data.get(username, {}).get("profile", {})
-    new_profile_data = {
-        "Name": name,
-        "Age": age,
-        "Country": country,
-        "Language": language,
-        "Height": f"{height} {height_unit}",
-        "Weight": f"{weight} {weight_unit}",
-        "BMI": bmi,
-        "Health Condition": health_condition,
-        "Health Problems": health_problems,
-    }
+    page = st.sidebar.radio("Navigation", ["Profile", "Add Water", "Weekly Report"])
 
-    if st.button("Save & Continue ➡️"):
-        recalc_needed = new_profile_data != old_profile
+    # --- PROFILE PAGE ---
+    if page == "Profile":
+        st.header("👤 Personal Settings")
+        profile["age"] = st.number_input("Age", min_value=1, value=int(profile.get("age", 18)))
+        profile["height"] = st.number_input("Height (cm)", min_value=50, value=int(profile.get("height", 170)))
+        profile["weight"] = st.number_input("Weight (kg)", min_value=10, value=int(profile.get("weight", 60)))
+        profile["country"] = st.selectbox("Country", [c.name for c in pycountry.countries], 
+                                          index=100 if "country" not in profile else 
+                                          [c.name for c in pycountry.countries].index(profile["country"]))
+        profile["health"] = st.text_input("Health Condition", value=profile.get("health", "Healthy"))
 
-        if recalc_needed:
-            with st.spinner("🤖 Water Buddy is calculating your ideal water intake..."):
-                prompt = f"""
-                You are Water Buddy, a smart hydration assistant.
-                Based on the following personal health information, suggest an ideal daily water intake goal in liters.
-                Only return a single numeric value in liters (no text, no units).
+        if st.button("💡 Recalculate AI Goal"):
+            with st.spinner("Calculating AI water goal..."):
+                goal = get_ai_water_goal(profile)
+                user_data[username]["water_goal"] = goal
+                save_json(DATA_FILE, user_data)
+            st.success(f"✅ AI suggested daily water goal: {goal:.2f} L")
 
-                Age: {age}
-                Height: {height} {height_unit}
-                Weight: {weight} {weight_unit}
-                BMI: {bmi}
-                Health condition: {health_condition}
-                Health problems: {health_problems if health_problems else 'None'}
-                """
-                try:
-                    response = model.generate_content(prompt)
-                    text_output = response.text.strip()
-                    match = re.search(r"(\d+(\.\d+)?)", text_output)
-                    if match:
-                        suggested_water_intake = float(match.group(1))
-                    else:
-                        raise ValueError("No numeric value found in Water Buddy response.")
-                except Exception as e:
-                    st.warning(f"⚠️ Water Buddy suggestion failed, using default 2.5 L ({e})")
-                    suggested_water_intake = 2.5
-        else:
-            suggested_water_intake = user_data.get(username, {}).get("ai_water_goal", 2.5)
-            text_output = "Profile unchanged — using previous goal."
+        save_json(DATA_FILE, user_data)
 
-        user_data[username] = user_data.get(username, {})
-        user_data[username]["profile"] = new_profile_data
-        user_data[username]["ai_water_goal"] = round(suggested_water_intake, 2)
-        save_user_data(user_data)
+    # --- ADD WATER PAGE ---
+    elif page == "Add Water":
+        st.header("🥤 Track Your Water Intake")
+        st.markdown(f"**Your daily goal:** {goal:.2f} L")
 
-        st.success(f"✅ Profile saved! Water Buddy suggests {suggested_water_intake:.2f} L/day 💧")
-        st.info(f"Water Buddy output: {text_output}")
-        go_to_page("water_profile")
+        amount = st.text_input("Enter water amount (in ml):", placeholder="e.g. 700 or 700ml")
+        add = st.button("➕ Add Water")
 
-# -------------------------------
-# WATER INTAKE PAGE
-# -------------------------------
-elif st.session_state.page == "water_profile":
-    username = st.session_state.username
-    saved = user_data.get(username, {}).get("water_profile", {})
-    ai_goal = user_data.get(username, {}).get("ai_water_goal", 2.5)
-
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Intake</h1>", unsafe_allow_html=True)
-    st.success(f"Your ideal daily water intake is **{ai_goal} L/day**, as suggested by Water Buddy 💧")
-
-    daily_goal = st.slider("Set your daily water goal (L):", 0.5, 10.0, float(ai_goal), 0.1)
-
-    frequency_options = [f"{i} minutes" for i in range(5, 185, 5)]
-    selected_frequency = st.selectbox(
-        "🔔 Reminder Frequency:", frequency_options, index=frequency_options.index(saved.get("frequency", "30 minutes"))
-    )
-
-    if st.button("💾 Save & Continue ➡️"):
-        user_data[username]["water_profile"] = {"daily_goal": daily_goal, "frequency": selected_frequency}
-        save_user_data(user_data)
-        st.success("✅ Water profile saved successfully!")
-        go_to_page("home")
-
-# -------------------------------
-# HOME PAGE
-# -------------------------------
-elif st.session_state.page == "home":
-    username = st.session_state.username
-    daily_goal = user_data.get(username, {}).get("water_profile", {}).get(
-        "daily_goal", user_data.get(username, {}).get("ai_water_goal", 2.5)
-    )
-
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
-    fill_percent = min(st.session_state.total_intake / daily_goal, 1.0)
-    bottle_html = f"""
-    <div style='width: 120px; height: 300px; border: 3px solid #1A73E8; border-radius: 20px;
-        position: relative; margin: auto; background: linear-gradient(to top, #1A73E8 {fill_percent*100}%, #E0E0E0 {fill_percent*100}%);'>
-        <div style='position: absolute; bottom: 5px; width: 100%; text-align: center; color: #fff; font-weight: bold; font-size: 18px;'>
-            {round(st.session_state.total_intake,2)}L / {daily_goal}L
-        </div>
-    </div>
-    """
-    st.markdown(bottle_html, unsafe_allow_html=True)
-
-    st.write("---")
-    water_input = st.text_input("Enter water amount (in ml):", key="water_input")
-
-    if st.button("➕ Add Water"):
-        try:
-            value = re.sub("[^0-9.]", "", water_input)
-            ml = float(value)
-            liters = ml / 1000
-            st.session_state.total_intake += liters
-            st.session_state.water_intake_log.append(f"{ml} ml")
-            st.success(f"✅ Added {ml} ml of water!")
-            st.rerun()
-        except:
-            st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
-
-    if st.session_state.water_intake_log:
-        st.write("### Today's Log:")
-        for i, entry in enumerate(st.session_state.water_intake_log, 1):
-            st.write(f"{i}. {entry}")
-
-    st.write("---")
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        if st.button("👤 Personal Settings"): go_to_page("settings")
-    with col2:
-        if st.button("🚰 Water Intake"): go_to_page("water_profile")
-    with col3:
-        if st.button("📈 Report"): go_to_page("report")
-    with col4:
-        if st.button("🔥 Daily Streak"): go_to_page("daily_streak")
-    with col5:
-        if st.button("🚪 Logout"):
-            st.session_state.logged_in = False
-            go_to_page("login")
-
-# -------------------------------
-# REPORT PAGE (✅ FIXED)
-# -------------------------------
-elif st.session_state.page == "report":
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>📊 Weekly Report</h1>", unsafe_allow_html=True)
-    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    progress = [100, 100, 75, 100, 90, 60, 100]
-
-    # ✅ Correct way: use DataFrame
-    df = pd.DataFrame({"Day": days, "Progress (%)": progress})
-    st.bar_chart(df.set_index("Day"))
-
-    avg = sum(progress) / len(progress)
-    total_intake = round(sum(progress) / 100 * 2.5 * 7, 2)  # example metric
-
-    st.write(f"### Weekly Avg: {avg:.0f}%")
-    st.write(f"**Total Intake (estimated): {total_intake} L**")
-    st.write("Goals Met: 5/7 days | Streak: 3 days")
-
-    st.write("---")
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        if st.button("🏠 Home"): go_to_page("home")
-    with col2:
-        if st.button("👤 Personal Settings"): go_to_page("settings")
-    with col3:
-        if st.button("🚰 Water Intake"): go_to_page("water_profile")
-    with col4:
-        st.info("You're on Report")
-    with col5:
-        if st.button("🔥 Daily Streak"): go_to_page("daily_streak")
-
-# -------------------------------
-# DAILY STREAK PAGE
-# -------------------------------
-elif st.session_state.page == "daily_streak":
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>🔥 Daily Streak</h1>", unsafe_allow_html=True)
-    streak_days = 14
-    today = datetime.now()
-    month = today.strftime("%B %Y")
-
-    st.markdown(f"""
-        <div style='text-align:center;'>
-            <div style='background: linear-gradient(180deg, #3EA1F2, #1A73E8);
-                width:180px; height:180px; border-radius:50%;
-                margin:auto; display:flex; align-items:center; justify-content:center;
-                color:white; font-size:40px; font-weight:bold;'>
-                {streak_days} DAYS
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown(f"<h3 style='text-align:center; color:#1A73E8; margin-top:30px;'>{month}</h3>", unsafe_allow_html=True)
-
-    days_in_month = 30
-    completed_days = [1, 2, 5, 6, 7, 10, 11, 12, 13, 14, 15, 18, 19, 20]
-    cols = st.columns(7)
-    week_day = 0
-    for day in range(1, days_in_month + 1):
-        if week_day == 7:
-            week_day = 0
-            cols = st.columns(7)
-        with cols[week_day]:
-            if day in completed_days:
-                st.markdown(f"<div style='text-align:center; color:#1A73E8; font-weight:bold;'>💧<br>{day}</div>", unsafe_allow_html=True)
+        if add:
+            match = re.match(r"^\s*(\d+(\.\d+)?)\s*(ml)?\s*$", amount.strip().lower())
+            if match:
+                water_ml = float(match.group(1))
+                timestamp = datetime.now().isoformat()
+                user_data[username]["intake"].append({"ml": water_ml, "time": timestamp})
+                save_json(DATA_FILE, user_data)
+                st.success(f"✅ Added {water_ml:.1f} ml of water!")
             else:
-                st.markdown(f"<div style='text-align:center; color:gray;'>{day}</div>", unsafe_allow_html=True)
-        week_day += 1
+                st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
 
-    st.markdown("---")
-    st.markdown("<h4 style='color:#1A73E8;'>🏅 Achievement Badges</h4>", unsafe_allow_html=True)
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown("<div style='text-align:center;'>🥉<br><b>7-Day</b><br>Unlocked ✅</div>", unsafe_allow_html=True)
-    with col2:
-        st.markdown("<div style='text-align:center;'>🥈<br><b>30-Day</b><br>Locked 🔒</div>", unsafe_allow_html=True)
-    with col3:
-        st.markdown("<div style='text-align:center;'>🥇<br><b>90-Day</b><br>Locked 🔒</div>", unsafe_allow_html=True)
-    with col4:
-        st.markdown("<div style='text-align:center;'>🏆<br><b>Next Badge</b><br>180 Days</div>", unsafe_allow_html=True)
+    # --- WEEKLY REPORT PAGE ---
+    elif page == "Weekly Report":
+        st.header("📊 Weekly Report")
 
-    st.markdown("""
-        <div style='background-color:#E3F2FD; border-radius:12px; padding:15px; text-align:center; color:#1A73E8; font-size:18px;'>
-            💧 You're on fire! Keep the streak going for better health! 🔥
-        </div>
-    """, unsafe_allow_html=True)
+        data = user_data[username]["intake"]
+        if not data:
+            st.info("No water data yet.")
+        else:
+            df = pd.DataFrame(data)
+            df["time"] = pd.to_datetime(df["time"])
+            df["date"] = df["time"].dt.date
 
-    st.markdown("---")
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        if st.button("🏠 Home"): go_to_page("home")
-    with col2:
-        if st.button("👤 Personal Settings"): go_to_page("settings")
-    with col3:
-        if st.button("🚰 Water Intake"): go_to_page("water_profile")
-    with col4:
-        if st.button("📈 Report"): go_to_page("report")
-    with col5:
-        st.info("You're on Daily Streak")
+            last_7 = df[df["date"] >= datetime.now().date() - timedelta(days=6)]
+            daily_sum = last_7.groupby("date")["ml"].sum().reset_index()
+
+            daily_sum["Progress (%)"] = (daily_sum["ml"] / (goal * 1000)) * 100
+            daily_sum["Progress (%)"] = daily_sum["Progress (%)"].clip(upper=100)
+
+            st.bar_chart(data=daily_sum.set_index("date")["Progress (%)"])
+
+            total_ml = daily_sum["ml"].sum()
+            st.metric("💧 Total Intake This Week", f"{total_ml/1000:.2f} L")
+            st.metric("🎯 Goal (per day)", f"{goal:.2f} L")
+
+        save_json(DATA_FILE, user_data)
