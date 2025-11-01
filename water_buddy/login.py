@@ -23,7 +23,16 @@ USER_FILE = "users.json"
 def load_users():
     if os.path.exists(USER_FILE):
         with open(USER_FILE, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+            # ✅ Fix: Ensure all entries are in correct dict format
+            for user, info in list(data.items()):
+                if not isinstance(info, dict):
+                    data[user] = {
+                        "password": str(info),
+                        "water_profile": {},
+                        "ai_water_goal": 2.5
+                    }
+            return data
     return {}
 
 def save_users(users):
@@ -119,7 +128,6 @@ elif st.session_state.page == "home":
     st.write("---")
     water_input = st.text_input("Enter water amount (in ml):", key="water_input")
 
-    # ✅ Add water
     if st.button("➕ Add Water"):
         value = re.sub("[^0-9.]", "", water_input).strip()
         if value:
@@ -155,9 +163,6 @@ elif st.session_state.page == "home":
             st.session_state.logged_in = False
             go_to_page("login")
 
-    # -------------------------------
-    # 🤖 Water Buddy Chatbot Popup (Improved)
-    # -------------------------------
     st.markdown("""
         <style>
         .chat-button {
