@@ -254,7 +254,7 @@ elif st.session_state.page == "home":
 
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
 
-    fill_percent = min(st.session_state.total_intake / daily_goal, 1.0)
+    fill_percent = min(st.session_state.total_intake / daily_goal, 1.0) if daily_goal > 0 else 0
     bottle_html = f"""
     <div style='width: 120px; height: 300px; border: 3px solid #1A73E8; border-radius: 20px; position: relative; margin: auto;
     background: linear-gradient(to top, #1A73E8 {fill_percent*100}%, #E0E0E0 {fill_percent*100}%);'>
@@ -391,7 +391,7 @@ elif st.session_state.page == "home":
             st.markdown("</div>", unsafe_allow_html=True)
 
 # -------------------------------
-# REPORT PAGE
+# REPORT PAGE (restored old design)
 # -------------------------------
 elif st.session_state.page == "report":
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>📊 Weekly Report</h1>", unsafe_allow_html=True)
@@ -403,7 +403,6 @@ elif st.session_state.page == "report":
     st.write(f"### Weekly Avg: {avg:.0f}%")
     st.write("Goals Met: 5/7 days | Streak: 3 days")
     st.write("---")
-
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         if st.button("🏠 Home"):
@@ -421,14 +420,13 @@ elif st.session_state.page == "report":
             go_to_page("daily_streak")
 
 # -------------------------------
-# DAILY STREAK PAGE
+# DAILY STREAK PAGE (restored old design)
 # -------------------------------
 elif st.session_state.page == "daily_streak":
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>🔥 Daily Streak</h1>", unsafe_allow_html=True)
     streak_days = 14
     today = datetime.now()
     month = today.strftime("%B %Y")
-
     st.markdown(f"""
     <div style='text-align:center;'>
         <div style='background: linear-gradient(180deg, #3EA1F2, #1A73E8); width:180px; height:180px; border-radius:50%;
@@ -437,20 +435,21 @@ elif st.session_state.page == "daily_streak":
         </div>
     </div>
     """, unsafe_allow_html=True)
-
     st.markdown(f"<h3 style='text-align:center; color:#1A73E8; margin-top:30px;'>{month}</h3>", unsafe_allow_html=True)
-    days_in_month = 30
-    completed_days = [i + 1 for i in range(streak_days)]
-    calendar = "".join(
-        f"<div style='width:40px; height:40px; border-radius:50%; background:#1A73E8; color:white; "
-        f"display:inline-flex; align-items:center; justify-content:center; margin:3px;'>{i}</div>"
-        if i in completed_days
-        else f"<div style='width:40px; height:40px; border-radius:50%; border:1px solid #1A73E8; "
-             f"color:#1A73E8; display:inline-flex; align-items:center; justify-content:center; margin:3px;'>{i}</div>"
-        for i in range(1, days_in_month + 1)
-    )
-    st.markdown(f"<div style='text-align:center; max-width:400px; margin:auto;'>{calendar}</div>", unsafe_allow_html=True)
 
+    days_in_month = 30
+    # Your previously used completed days array:
+    completed_days = [1, 2, 5, 6, 7, 10, 11, 12, 13, 14, 15]
+
+    grid_html = "<div style='display:grid; grid-template-columns:repeat(7, 1fr); gap:8px; text-align:center;'>"
+    for i in range(1, days_in_month + 1):
+        color = "#1A73E8" if i in completed_days else "#E0E0E0"
+        text_color = "white" if i in completed_days else "black"
+        grid_html += f"<div style='background-color:{color}; border-radius:8px; padding:10px; color:{text_color}; font-weight:bold;'>{i}</div>"
+    grid_html += "</div>"
+
+    st.markdown(grid_html, unsafe_allow_html=True)
+    st.success("🔥 You're on a 14-day streak! Keep it up!")
     st.write("---")
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
