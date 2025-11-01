@@ -187,7 +187,7 @@ elif st.session_state.page == "settings":
                 prompt = f"""
                 You are Water Buddy, a smart hydration assistant.
                 Based on the following personal health information, suggest an ideal daily water intake goal in liters.
-                Only return a single numeric value in liters (no text, no units). 
+                Only return a single numeric value in liters (no text, no units).
 
                 Age: {age}
                 Height: {height} {height_unit}
@@ -305,7 +305,7 @@ elif st.session_state.page == "home":
             go_to_page("login")
 
     # -------------------------------
-    # 🤖 Water Buddy Chatbot Popup (Fixed header + removed scrollbar)
+    # 🤖 Water Buddy Chatbot Popup (white bar removed)
     # -------------------------------
     st.markdown("""
         <style>
@@ -336,11 +336,19 @@ elif st.session_state.page == "home":
             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
             padding: 15px;
             z-index: 1000;
-            overflow-y: auto;
+            overflow-y: hidden;
             max-height: 400px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .chat-content {
+            overflow-y: auto;
+            max-height: 320px;
+            padding-right: 5px;
             scrollbar-width: none;
         }
-        .chat-window::-webkit-scrollbar {
+        .chat-content::-webkit-scrollbar {
             display: none;
         }
         .bot-message {
@@ -369,23 +377,23 @@ elif st.session_state.page == "home":
                 </div>
             """, unsafe_allow_html=True)
 
-            # Only show bot messages (hide user text)
+            st.markdown("<div class='chat-content'>", unsafe_allow_html=True)
             for entry in st.session_state.chat_history:
                 if entry["sender"] == "bot":
                     st.markdown(f"<div class='bot-message'>🤖 {entry['text']}</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
-            user_msg = st.text_input("Type your message...", key="chat_input")
-            if st.button("Send", key="send_btn"):
-                if user_msg.strip():
-                    try:
-                        prompt = f"You are Water Buddy, a friendly AI hydration assistant. Respond conversationally.\nUser: {user_msg}"
-                        response = model.generate_content(prompt)
-                        reply = response.text.strip()
-                    except Exception:
-                        reply = "⚠️ Sorry, I’m having trouble connecting right now."
-
-                    st.session_state.chat_history.append({"sender": "bot", "text": reply})
-                    st.rerun()
+            user_msg = st.text_input("Type your message...", key="chat_input", label_visibility="collapsed")
+            send = st.button("Send", key="send_btn")
+            if send and user_msg.strip():
+                try:
+                    prompt = f"You are Water Buddy, a friendly AI hydration assistant. Respond conversationally.\nUser: {user_msg}"
+                    response = model.generate_content(prompt)
+                    reply = response.text.strip()
+                except Exception:
+                    reply = "⚠️ Sorry, I’m having trouble connecting right now."
+                st.session_state.chat_history.append({"sender": "bot", "text": reply})
+                st.rerun()
 
             st.markdown("</div>", unsafe_allow_html=True)
 
@@ -426,24 +434,14 @@ elif st.session_state.page == "daily_streak":
     st.markdown(f"""
         <div style='text-align:center;'>
             <div style='background: linear-gradient(180deg, #3EA1F2, #1A73E8);
-                width:180px; height:180px; border-radius:50%;
-                margin:auto; display:flex; align-items:center; justify-content:center;
-                color:white; font-size:40px; font-weight:bold;'>
-                {streak_days} DAYS
+                display:inline-block; padding: 12px 25px; border-radius: 12px; color: white;
+                font-size: 22px; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.2);'>
+                {streak_days} 🔥 days streak!
             </div>
+            <p style='margin-top: 10px; color:#555;'>Keep going! {month}</p>
         </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(f"<h3 style='text-align:center; color:#1A73E8; margin-top:30px;'>{month}</h3>", unsafe_allow_html=True)
-    days_in_month = 30
-    completed_days = [i+1 for i in range(streak_days)]
-    calendar = "".join(
-        f"<div style='width:40px; height:40px; border-radius:50%; background:#1A73E8; color:white; display:inline-flex; align-items:center; justify-content:center; margin:3px;'>{i}</div>"
-        if i in completed_days
-        else f"<div style='width:40px; height:40px; border-radius:50%; border:1px solid #1A73E8; color:#1A73E8; display:inline-flex; align-items:center; justify-content:center; margin:3px;'>{i}</div>"
-        for i in range(1, days_in_month + 1)
-    )
-    st.markdown(f"<div style='text-align:center; max-width:400px; margin:auto;'>{calendar}</div>", unsafe_allow_html=True)
     st.write("---")
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
@@ -455,4 +453,4 @@ elif st.session_state.page == "daily_streak":
     with col4:
         if st.button("📈 Report"): go_to_page("report")
     with col5:
-        st.info("You're on Daily Streak")
+        st.info("You're on Streak")
