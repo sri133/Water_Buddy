@@ -305,7 +305,7 @@ elif st.session_state.page == "home":
             go_to_page("login")
 
     # -------------------------------
-    # 🤖 Water Buddy Chatbot Popup (Fixed)
+    # 🤖 Water Buddy Chatbot Popup (Fixed header + removed scrollbar)
     # -------------------------------
     st.markdown("""
         <style>
@@ -338,10 +338,10 @@ elif st.session_state.page == "home":
             z-index: 1000;
             overflow-y: auto;
             max-height: 400px;
+            scrollbar-width: none;
         }
         .chat-window::-webkit-scrollbar {
-            width: 0px;
-            background: transparent;
+            display: none;
         }
         .bot-message {
             text-align: left;
@@ -363,7 +363,11 @@ elif st.session_state.page == "home":
     if st.session_state.show_chatbot:
         with st.container():
             st.markdown("<div class='chat-window'>", unsafe_allow_html=True)
-            st.markdown("<h4 style='text-align:center; color:#1A73E8;'>💬 Water Buddy</h4>", unsafe_allow_html=True)
+            st.markdown("""
+                <div style='text-align:center; color:#1A73E8; font-weight:600; font-size:18px;'>
+                    💬 Water Buddy <span style='font-size:14px; color:#555;'>— powered by Gemini 2.5 Flash</span>
+                </div>
+            """, unsafe_allow_html=True)
 
             # Only show bot messages (hide user text)
             for entry in st.session_state.chat_history:
