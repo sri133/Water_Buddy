@@ -245,7 +245,7 @@ elif st.session_state.page == "water_profile":
         go_to_page("home")
 
 # -------------------------------
-# HOME PAGE (FIXED ADD WATER)
+# HOME PAGE (with Chatbot)
 # -------------------------------
 elif st.session_state.page == "home":
     username = st.session_state.username
@@ -268,7 +268,6 @@ elif st.session_state.page == "home":
     st.write("---")
     water_input = st.text_input("Enter water amount (in ml):", key="water_input")
 
-    # ✅ FIXED SECTION BELOW
     if st.button("➕ Add Water"):
         value = re.sub("[^0-9.]", "", water_input).strip()
         if value:
@@ -304,6 +303,73 @@ elif st.session_state.page == "home":
         if st.button("🚪 Logout"):
             st.session_state.logged_in = False
             go_to_page("login")
+
+    # -------------------------------
+    # 🤖 Water Buddy Chatbot Popup
+    # -------------------------------
+    st.markdown("""
+        <style>
+        .chat-button {
+            position: fixed;
+            bottom: 25px;
+            right: 25px;
+            background-color: #1A73E8;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 28px;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            z-index: 999;
+        }
+        .chat-window {
+            position: fixed;
+            bottom: 100px;
+            right: 25px;
+            width: 350px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            padding: 15px;
+            z-index: 1000;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    chat_button_clicked = st.button("🤖", key="chat_button", help="Chat with Water Buddy")
+
+    if chat_button_clicked:
+        st.session_state.show_chatbot = not st.session_state.show_chatbot
+
+    if st.session_state.show_chatbot:
+        with st.container():
+            st.markdown("<div class='chat-window'>", unsafe_allow_html=True)
+            st.markdown("<h4 style='text-align:center; color:#1A73E8;'>💬 Water Buddy</h4>", unsafe_allow_html=True)
+
+            for entry in st.session_state.chat_history:
+                if entry["sender"] == "user":
+                    st.markdown(f"<div style='text-align:right; color:#1A73E8;'>🧑‍💻 {entry['text']}</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div style='text-align:left; color:gray;'>🤖 {entry['text']}</div>", unsafe_allow_html=True)
+
+            user_msg = st.text_input("Type your message...", key="chat_input")
+            if st.button("Send", key="send_btn"):
+                if user_msg.strip():
+                    st.session_state.chat_history.append({"sender": "user", "text": user_msg})
+                    try:
+                        prompt = f"You are Water Buddy, a friendly AI hydration assistant. Respond conversationally.\nUser: {user_msg}"
+                        response = model.generate_content(prompt)
+                        reply = response.text.strip()
+                    except Exception:
+                        reply = "⚠️ Sorry, I’m having trouble connecting right now."
+                    st.session_state.chat_history.append({"sender": "bot", "text": reply})
+                    st.rerun()
+
+            st.markdown("</div>", unsafe_allow_html=True)
 
 # -------------------------------
 # REPORT PAGE
@@ -352,39 +418,17 @@ elif st.session_state.page == "daily_streak":
 
     st.markdown(f"<h3 style='text-align:center; color:#1A73E8; margin-top:30px;'>{month}</h3>", unsafe_allow_html=True)
     days_in_month = 30
-    completed_days = [1, 2, 5, 6, 7, 10, 11, 12, 13, 14, 15, 18, 19, 20]
-    cols = st.columns(7)
-    week_day = 0
-    for day in range(1, days_in_month + 1):
-        if week_day == 7:
-            week_day = 0
-            cols = st.columns(7)
-        with cols[week_day]:
-            if day in completed_days:
-                st.markdown(f"<div style='text-align:center; color:#1A73E8; font-weight:bold;'>💧<br>{day}</div>", unsafe_allow_html=True)
-            else:
-                st.markdown(f"<div style='text-align:center; color:gray;'>{day}</div>", unsafe_allow_html=True)
-        week_day += 1
+    completed_days = [1, 2, 5, 6, 7, 10, 11, 12, 13, 14, 15]
+    grid_html = "<div style='display:grid; grid-template-columns:repeat(7, 1fr); gap:8px; text-align:center;'>"
+    for i in range(1, days_in_month + 1):
+        color = "#1A73E8" if i in completed_days else "#E0E0E0"
+        text_color = "white" if i in completed_days else "black"
+        grid_html += f"<div style='background-color:{color}; border-radius:8px; padding:10px; color:{text_color}; font-weight:bold;'>{i}</div>"
+    grid_html += "</div>"
+    st.markdown(grid_html, unsafe_allow_html=True)
+    st.success("🔥 You're on a 14-day streak! Keep it up!")
 
-    st.markdown("---")
-    st.markdown("<h4 style='color:#1A73E8;'>🏅 Achievement Badges</h4>", unsafe_allow_html=True)
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown("<div style='text-align:center;'>🥉<br><b>7-Day</b><br>Unlocked ✅</div>", unsafe_allow_html=True)
-    with col2:
-        st.markdown("<div style='text-align:center;'>🥈<br><b>30-Day</b><br>Locked 🔒</div>", unsafe_allow_html=True)
-    with col3:
-        st.markdown("<div style='text-align:center;'>🥇<br><b>90-Day</b><br>Locked 🔒</div>", unsafe_allow_html=True)
-    with col4:
-        st.markdown("<div style='text-align:center;'>🏆<br><b>Next Badge</b><br>180 Days</div>", unsafe_allow_html=True)
-
-    st.markdown("""
-        <div style='background-color:#E3F2FD; border-radius:12px; padding:15px; text-align:center; color:#1A73E8; font-size:18px;'>
-            💧 You're on fire! Keep the streak going for better health! 🔥
-        </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("---")
+    st.write("---")
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         if st.button("🏠 Home"): go_to_page("home")
