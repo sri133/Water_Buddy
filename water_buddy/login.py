@@ -305,7 +305,7 @@ elif st.session_state.page == "home":
             go_to_page("login")
 
     # -------------------------------
-    # 🤖 Water Buddy Chatbot Popup (white bar removed)
+    # 🤖 Chatbot (white bar removed)
     # -------------------------------
     st.markdown("""
         <style>
@@ -332,20 +332,22 @@ elif st.session_state.page == "home":
             right: 25px;
             width: 350px;
             background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
             padding: 15px;
             z-index: 1000;
-            overflow-y: hidden;
-            max-height: 400px;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
+            max-height: 420px;
+            overflow: hidden;
         }
         .chat-content {
             overflow-y: auto;
-            max-height: 320px;
-            padding-right: 5px;
+            flex-grow: 1;
+            margin-top: 10px;
+            margin-bottom: 10px;
+            padding-right: 0px !important;
             scrollbar-width: none;
         }
         .chat-content::-webkit-scrollbar {
@@ -357,8 +359,14 @@ elif st.session_state.page == "home":
             background: #F1F1F1;
             padding: 8px 10px;
             border-radius: 10px;
-            margin: 5px 0;
+            margin: 6px 0;
             display: inline-block;
+            max-width: 90%;
+            word-wrap: break-word;
+        }
+        [data-testid="stVerticalBlock"] div:has(.chat-window) {
+            padding-right: 0 !important;
+            margin-right: 0 !important;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -427,21 +435,10 @@ elif st.session_state.page == "report":
 # -------------------------------
 elif st.session_state.page == "daily_streak":
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>🔥 Daily Streak</h1>", unsafe_allow_html=True)
-    streak_days = 14
-    today = datetime.now()
-    month = today.strftime("%B %Y")
-
-    st.markdown(f"""
-        <div style='text-align:center;'>
-            <div style='background: linear-gradient(180deg, #3EA1F2, #1A73E8);
-                display:inline-block; padding: 12px 25px; border-radius: 12px; color: white;
-                font-size: 22px; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.2);'>
-                {streak_days} 🔥 days streak!
-            </div>
-            <p style='margin-top: 10px; color:#555;'>Keep going! {month}</p>
-        </div>
-    """, unsafe_allow_html=True)
-
+    streak = 5
+    st.success(f"You're on a **{streak}-day streak!** 💪 Keep going!")
+    st.progress(streak / 10)
+    st.write("Drink consistently for 10 days to earn your first badge! 🏅")
     st.write("---")
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
@@ -453,4 +450,4 @@ elif st.session_state.page == "daily_streak":
     with col4:
         if st.button("📈 Report"): go_to_page("report")
     with col5:
-        st.info("You're on Streak")
+        st.info("You're on Streak Page")
