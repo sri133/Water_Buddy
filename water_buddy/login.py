@@ -584,10 +584,10 @@ elif st.session_state.page == "report":
     # Remove all interactive drag/zoom tools by disabling modebar and scrollZoom
     st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
-    # counts: only count days up to today (exclude future/upcoming)
-    achieved_days = sum(1 for s in status_list if s == "achieved")
-    almost_days = sum(1 for s in status_list if s == "almost")
-    missed_days = sum(1 for s, d in zip(status_list, week_days) if s == "missed" and d <= today)
+    # ----- FIXED: Count only days up to today for the summary counts -----
+    achieved_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "achieved")
+    almost_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "almost")
+    missed_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "missed")
 
     st.markdown(f"✅ Achieved: **{achieved_days}** • 🟨 Almost: **{almost_days}** • 📉 Missed: **{missed_days}**", unsafe_allow_html=True)
 
