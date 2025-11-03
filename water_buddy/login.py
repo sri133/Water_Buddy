@@ -58,7 +58,6 @@ if os.path.exists(USER_DATA_FILE):
 else:
     user_data = {}
     with open(USER_DATA_FILE, "w") as f:
-        # ✅ MODIFIED: Added sort_keys=True for consistent order
         json.dump(user_data, f, indent=4, sort_keys=True)
 
 # -------------------------------
@@ -84,7 +83,6 @@ if "chat_history" not in st.session_state:
 # -------------------------------
 def save_user_data(data):
     with open(USER_DATA_FILE, "w") as f:
-        # ✅ MODIFIED: Added sort_keys=True for consistent order
         json.dump(data, f, indent=4, sort_keys=True)
 
 def go_to_page(page_name: str):
@@ -113,7 +111,6 @@ if st.session_state.page == "login":
             else:
                 users[username] = password
                 with open(CREDENTIALS_FILE, "w") as f:
-                    # ✅ MODIFIED: Added indent=4 and sort_keys=True for consistent order
                     json.dump(users, f, indent=4, sort_keys=True)
                 
                 user_data[username] = {}
@@ -150,7 +147,7 @@ elif st.session_state.page == "settings":
     
     name = st.text_input("Name", value=saved.get("Name", username))
     age = st.text_input("Age", value=saved.get("Age", ""))
-    country = st.selectbox("Country", countries, index=countries.index(saved.get("Country", "India")))
+    country = st.selectbox("Country", countries, index=countries.index(saved.get("Country", "India")) if saved.get("Country") else countries.index("India"))
     language = st.text_input("Language", value=saved.get("Language", ""))
     
     st.write("---")
@@ -469,7 +466,7 @@ elif st.session_state.page == "home":
             st.markdown("</div>", unsafe_allow_html=True)
 
 # -------------------------------
-# REPORT PAGE (updated behavior: upcoming days + no plotly toolbar)
+# REPORT PAGE (updated behavior: removed star grid and legend)
 # -------------------------------
 elif st.session_state.page == "report":
     username = st.session_state.username
@@ -621,19 +618,79 @@ elif st.session_state.page == "report":
     st.write("---")
 
     # -------------------------------
-    # Section: Monthly star grid (row-wise, upcoming handling)
+    # Monthly stats
     # -------------------------------
-    st.markdown("### Monthly Overview (tap a star for details)")
-    
     year = today.year
     month = today.month
     days_in_month = calendar.monthrange(year, month)[1]
     month_dates = [date(year, month, d) for d in range(1, days_in_month + 1)]
 
-    query_params = st.experimental_get_query_params()
-    selected_day_param = query_params.get("selected_day", [None])[0]
+    total_met = sum(1 for d in month_dates if (d in completed_dates) or (d == today and st.session_state.total_intake and st.session_state.total_intake >= daily_goal))
+    total_days = len(month_dates)
 
-    # CSS for star grid and upcoming
+    if completed_dates:
+        all_sorted = sorted(completed_dates)
+        best_streak = 0
+        current = 1
+        for i in range(1, len(all_sorted)):
+            if (all_sorted[i] - all_sorted[i-1]).days == 1:
+                current += 1
+            else:
+                if current > best_streak:
+                    best_streak = current
+                current = 1
+        if current > best_streak:
+            best_streak = current
+    else:
+        best_streak = 0
+
+    st.write(f"🏆 Best streak (ever): **{best_streak} days**")
+    st.write(f"💧 This month goals met: **{total_met} / {total_days}**")
+
+    st.write("---")
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        if st.button("🏠 Home"):
+            go_to_page("home")
+    with col2:
+        if st.button("👤 Personal Settings"):
+            go_to_page("settings")
+    with col3:
+        if st.button("🚰 Water Intake"):
+            go_to_page("water_profile")
+    with col4:
+        st.info("You're on Report")
+    with col5:
+        if st.button("🔥 Daily Streak"):
+            go_to_page("daily_streak")
+            
+# -------------------------------
+# DAILY STREAK PAGE (REPLACED: star grid here; no title/legend)
+# -------------------------------
+elif st.session_state.page == "daily_streak":
+    username = st.session_state.username
+    today = date.today()
+    year, month = today.year, today.month
+    days_in_month = calendar.monthrange(year, month)[1]
+
+    if username not in user_data:
+        user_data[username] = {}
+        
+    user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
+    streak_info = user_data[username].get("streak", {"completed_days": [], "current_streak": 0})
+    completed_iso = streak_info.get("completed_days", [])
+    current_streak = streak_info.get("current_streak", 0)
+
+    completed_dates = []
+    for s in completed_iso:
+        try:
+            d = datetime.strptime(s, "%Y-%m-%d").date()
+            completed_dates.append(d)
+        except Exception:
+            continue
+
+    # Build star-grid styles and HTML (showing date numbers inside each star)
     star_css = """
     <style>
     .star-grid {
@@ -650,7 +707,7 @@ elif st.session_state.page == "report":
        display:flex;
        align-items:center;
        justify-content:center;
-       font-size:20px;
+       font-size:16px;
        border-radius:6px;
        transition: transform .12s ease, box-shadow .12s ease, background-color .12s ease, filter .12s ease;
        cursor: pointer;
@@ -676,51 +733,33 @@ elif st.session_state.page == "report":
        color: #4b2a00;
        box-shadow: 0 8px 22px rgba(255,176,0,0.42), 0 2px 6px rgba(0,0,0,0.18);
     }
-    .star.small { width:38px; height:38px; font-size:18px; }
-    
-    .slide-card {
-       position: fixed;
-       left: 50%;
-       transform: translateX(-50%);
-       bottom: 18px;
-       width: 340px;
-       max-width: 92%;
-       background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,250,250,0.98));
-       color:#111;
-       border-radius:12px;
-       box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-       padding:14px 16px;
-       z-index: 2000;
-       animation: slideUp .36s ease;
-    }
-    @keyframes slideUp { from { transform: translateX(-50%) translateY(24px); opacity:0; } to { transform: translateX(-50%) translateY(0); opacity:1; } }
-    .slide-card h4 { margin:0 0 6px 0; font-size:16px; }
-    .slide-card p { margin:0; font-size:14px; color:#333; }
-    .close-btn { display:inline-block; margin-top:10px; color:#1A73E8; text-decoration:none; font-weight:600; cursor:pointer; }
-    
+    .star.small { width:38px; height:38px; font-size:14px; }
     @media(max-width:600px){
        .star-grid { grid-template-columns: repeat(4, 1fr); gap:10px; }
-       .star { width:36px; height:36px; font-size:16px; }
-       .slide-card { width:92%; bottom: 12px; }
+       .star { width:36px; height:36px; font-size:14px; }
     }
     </style>
     """
-    
+
+    # Generate stars HTML with date numbers and status classes
     stars_html = "<div class='star-grid'>"
-    for d in month_dates:
-        day_num = d.day
-        iso = d.strftime("%Y-%m-%d")
-        if d > today:
-            css_class = "upcoming"
+    for d in range(1, days_in_month + 1):
+        the_date = date(year, month, d)
+        iso = the_date.strftime("%Y-%m-%d")
+        if the_date > today:
+            css_class = "upcoming small"
         else:
-            css_class = "achieved" if d in completed_dates else "dim"
+            css_class = "achieved small" if the_date in completed_dates else "dim small"
         href = f"?selected_day={iso}"
-        stars_html += f"<a class='star {css_class} small' href='{href}' title='Day {day_num}'>★</a>"
+        # Put the day number inside the star
+        stars_html += f"<a class='star {css_class}' href='{href}' title='Day {d}'>{d}</a>"
     stars_html += "</div>"
 
     st.markdown(star_css + stars_html, unsafe_allow_html=True)
 
-    # Slide card for selected day
+    # If a day is selected via query param, show slide card details (same UX as before)
+    query_params = st.experimental_get_query_params()
+    selected_day_param = query_params.get("selected_day", [None])[0]
     if selected_day_param:
         try:
             sel_date = datetime.strptime(selected_day_param, "%Y-%m-%d").date()
@@ -731,17 +770,17 @@ elif st.session_state.page == "report":
             else:
                 status_txt = "achieved" if sel_date in completed_dates else "missed"
 
-            card_html = "<div class='slide-card'>"
-            card_html += f"<h4>Day {sel_day_num} — {sel_date.strftime('%b %d, %Y')}</h4>"
+            card_html = "<div class='slide-card' style='position: fixed; left:50%; transform: translateX(-50%); bottom:18px; width:340px; max-width:92%; background:linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,250,250,0.98)); color:#111; border-radius:12px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); padding:14px 16px; z-index:2000;'>"
+            card_html += f"<h4 style='margin:0 0 6px 0; font-size:16px;'>Day {sel_day_num} — {sel_date.strftime('%b %d, %Y')}</h4>"
             
             if status_txt == "achieved":
-                card_html += "<p>🎉 Goal completed on this day! Great job.</p>"
+                card_html += "<p style='margin:0; font-size:14px; color:#333;'>🎉 Goal completed on this day! Great job.</p>"
             elif status_txt == "upcoming":
-                card_html += "<p>⏳ This day is upcoming — no data yet.</p>"
+                card_html += "<p style='margin:0; font-size:14px; color:#333;'>⏳ This day is upcoming — no data yet.</p>"
             else:
-                card_html += "<p>💧 Goal missed on this day. Keep trying — tomorrow is new!</p>"
+                card_html += "<p style='margin:0; font-size:14px; color:#333;'>💧 Goal missed on this day. Keep trying — tomorrow is new!</p>"
                 
-            card_html += "<div><span class='close-btn' onclick=\"history.replaceState(null, '', window.location.pathname);\">Close</span></div>"
+            card_html += "<div><span class='close-btn' style='display:inline-block; margin-top:10px; color:#1A73E8; text-decoration:none; font-weight:600; cursor:pointer;' onclick=\"history.replaceState(null, '', window.location.pathname);\">Close</span></div>"
             card_html += "</div>"
             
             js_hide_on_scroll = """
@@ -763,101 +802,14 @@ elif st.session_state.page == "report":
             pass
 
     st.write("---")
-
-    # Monthly stats
-    total_met = sum(1 for d in month_dates if (d in completed_dates) or (d == today and st.session_state.total_intake and st.session_state.total_intake >= daily_goal))
-    total_days = len(month_dates)
-
-    if completed_dates:
-        all_sorted = sorted(completed_dates)
-        best_streak = 0
-        current = 1
-        for i in range(1, len(all_sorted)):
-            if (all_sorted[i] - all_sorted[i-1]).days == 1:
-                current += 1
-            else:
-                if current > best_streak:
-                    best_streak = current
-                current = 1
-        if current > best_streak:
-            best_streak = current
-    else:
-        best_streak = 0
-
-    st.write(f"🏆 Best streak (ever): **{best_streak} days**")
-    st.write(f"💧 This month goals met: **{total_met} / {total_days}**")
-
-    st.write("---")
-    st.markdown("""
-    <div style='display:flex; gap:12px; justify-content:center; align-items:center; margin-top:10px;'>
-       <div style='display:flex; align-items:center; gap:6px;'><div style='width:18px; height:18px; background:#FFD85C; border-radius:4px;'></div> Glowing = Achieved</div>
-       <div style='display:flex; align-items:center; gap:6px;'><div style='width:18px; height:18px; background:rgba(255,255,255,0.06); border-radius:4px;'></div> Dim = Missed</div>
-       <div style='display:flex; align-items:center; gap:6px;'><div style='width:18px; height:18px; background:rgba(255,255,255,0.02); border-radius:4px;'></div> Faded = Upcoming</div>
-    </div>
-    """, unsafe_allow_html=True)
-    st.write("---")
-
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        if st.button("🏠 Home"):
-            go_to_page("home")
-    with col2:
-        if st.button("👤 Personal Settings"):
-            go_to_page("settings")
-    with col3:
-        if st.button("🚰 Water Intake"):
-            go_to_page("water_profile")
-    with col4:
-        st.info("You're on Report")
-    with col5:
-        if st.button("🔥 Daily Streak"):
-            go_to_page("daily_streak")
-            
-# -------------------------------
-# DAILY STREAK PAGE (unchanged)
-# -------------------------------
-elif st.session_state.page == "daily_streak":
-    username = st.session_state.username
-    today = date.today()
-    year, month = today.year, today.month
-    month_name = today.strftime("%B %Y")
-    days_in_month = calendar.monthrange(year, month)[1]
-
-    if username not in user_data:
-        user_data[username] = {}
-        
-    user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
-    streak_info = user_data[username].get("streak", {"completed_days": [], "current_streak": 0})
-    completed_iso = streak_info.get("completed_days", [])
-    current_streak = streak_info.get("current_streak", 0)
-
-    completed_dates = []
-    for s in completed_iso:
-        try:
-            d = datetime.strptime(s, "%Y-%m-%d").date()
-            completed_dates.append(d)
-        except Exception:
-            continue
-
+    
+    # Keep small monthly summary and streak number (unchanged)
     completed_dates_in_month = sorted([d for d in completed_dates if d.year == year and d.month == month])
     completed_days_numbers = [d.day for d in completed_dates_in_month]
     
     last_completed_day_num = max(completed_days_numbers) if completed_days_numbers else None
-    
-    grid_html = "<div style='display:grid; grid-template-columns:repeat(7, 1fr); gap:8px; text-align:center;'>"
-    
-    for day in range(1, days_in_month + 1):
-        if day in completed_days_numbers:
-            grid_html += f"<div style='background-color: #1A73E8; color: white; padding: 10px; border-radius: 50%;'>{day}</div>"
-        else:
-            grid_html += f"<div style='background-color: #E0E0E0; color: #888; padding: 10px; border-radius: 50%;'>{day}</div>"
-            
-    grid_html += "</div>"
-    
-    st.markdown(f"<h1 style='text-align:center; color:#1A73E8;'>🔥 Daily Streak: {current_streak} Days</h1>", unsafe_allow_html=True)
-    st.markdown(f"### {month_name}")
-    st.markdown(grid_html, unsafe_allow_html=True)
-    
+
+    st.markdown(f"<h2 style='text-align:center; color:#1A73E8;'>🔥 Daily Streak: {current_streak} Days</h2>", unsafe_allow_html=True)
     st.write("---")
     
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -876,3 +828,7 @@ elif st.session_state.page == "daily_streak":
             go_to_page("report")
     with col5:
         st.info("You're on Daily Streak")
+
+# -------------------------------
+# End of App
+# -------------------------------
