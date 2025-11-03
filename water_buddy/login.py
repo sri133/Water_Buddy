@@ -4,9 +4,10 @@ import os
 import pycountry
 import re
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 from dotenv import load_dotenv
 import google.generativeai as genai
+import calendar
 
 # -------------------------------
 # ✅ Load API key from .env or Streamlit Secrets
@@ -244,7 +245,7 @@ elif st.session_state.page == "water_profile":
         go_to_page("home")
 
 # -------------------------------
-# HOME PAGE (with Chatbot)
+# HOME PAGE
 # -------------------------------
 elif st.session_state.page == "home":
     username = st.session_state.username
@@ -276,6 +277,37 @@ elif st.session_state.page == "home":
                 st.session_state.total_intake += liters
                 st.session_state.water_intake_log.append(f"{ml} ml")
                 st.success(f"✅ Added {ml} ml of water!")
+
+                # ✅ Update daily streak data when user meets their goal
+                username = st.session_state.username
+                today_str = str(date.today())
+                user_streak = user_data.get(username, {}).get("streak", {"completed_days": [], "current_streak": 0})
+                daily_goal = user_data.get(username, {}).get("water_profile", {}).get("daily_goal", 2.5)
+
+                # If daily goal reached, add today's date to completed_days and recompute streak
+                if st.session_state.total_intake >= daily_goal:
+                    if today_str not in user_streak.get("completed_days", []):
+                        # append today's date as YYYY-MM-DD
+                        user_streak.setdefault("completed_days", []).append(today_str)
+                        # keep unique & sorted
+                        user_streak["completed_days"] = sorted(list(set(user_streak["completed_days"])))
+                    # Recalculate continuous streak ending today
+                    completed_dates = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in user_streak["completed_days"]])
+                    streak = 0
+                    day_cursor = date.today()
+                    while True:
+                        if day_cursor in completed_dates:
+                            streak += 1
+                            day_cursor = day_cursor - pd.Timedelta(days=1)
+                            # use datetime.date arithmetic using timedelta from pandas or datetime
+                            # convert to datetime.date deltas:
+                            day_cursor = day_cursor
+                        else:
+                            break
+                    user_streak["current_streak"] = streak
+                    user_data[username]["streak"] = user_streak
+                    save_user_data(user_data)
+
                 st.rerun()
                 st.stop()
             except ValueError:
@@ -309,6 +341,7 @@ elif st.session_state.page == "home":
 
     # -------------------------------
     # 🤖 Water Buddy Chatbot Popup (Fixed header + removed scrollbar)
+    # (unchanged from your original - kept as-is)
     # -------------------------------
     st.markdown("""
     <style>
@@ -391,7 +424,7 @@ elif st.session_state.page == "home":
             st.markdown("</div>", unsafe_allow_html=True)
 
 # -------------------------------
-# REPORT PAGE (restored old design)
+# REPORT PAGE
 # -------------------------------
 elif st.session_state.page == "report":
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>📊 Weekly Report</h1>", unsafe_allow_html=True)
@@ -420,36 +453,93 @@ elif st.session_state.page == "report":
             go_to_page("daily_streak")
 
 # -------------------------------
-# DAILY STREAK PAGE (restored old design)
+# DAILY STREAK PAGE (updated)
 # -------------------------------
 elif st.session_state.page == "daily_streak":
+    username = st.session_state.username
+    today = date.today()
+    year, month = today.year, today.month
+    month_name = today.strftime("%B %Y")
+    days_in_month = calendar.monthrange(year, month)[1]
+
+    # Ensure streak structure exists
+    if username not in user_data:
+        user_data[username] = {}
+    streak_info = user_data[username].get("streak", {"completed_days": [], "current_streak": 0})
+    completed_iso = streak_info.get("completed_days", [])  # list of "YYYY-MM-DD" strings
+    current_streak = streak_info.get("current_streak", 0)
+
+    # Convert completed days to date objects and filter to this month
+    completed_dates = []
+    for s in completed_iso:
+        try:
+            d = datetime.strptime(s, "%Y-%m-%d").date()
+            completed_dates.append(d)
+        except Exception:
+            continue
+    completed_dates_in_month = sorted([d for d in completed_dates if d.year == year and d.month == month])
+    completed_days_numbers = [d.day for d in completed_dates_in_month]
+
+    # Determine last completed day in this month (if any)
+    last_completed_day_num = max(completed_days_numbers) if completed_days_numbers else None
+
+    # Build calendar grid: 7 columns
+    grid_html = "<div style='display:grid; grid-template-columns:repeat(7, 1fr); gap:8px; text-align:center;'>"
+    for day in range(1, days_in_month + 1):
+        # decide color
+        if day in completed_days_numbers:
+            color = "#1A73E8"  # Blue for completed
+            text_color = "white"
+        else:
+            # if there's any completed day and this day is before the last completed day and is not completed -> red
+            if last_completed_day_num and day < last_completed_day_num:
+                color = "#FF4B4B"  # Red missed (streak broken / between streaks)
+                text_color = "white"
+            else:
+                color = "#E0E0E0"  # Gray upcoming / not met yet
+                text_color = "black"
+        grid_html += f"<div style='background-color:{color}; border-radius:8px; padding:10px; color:{text_color}; font-weight:bold;'>{day}</div>"
+    grid_html += "</div>"
+
+    # Display header + circle with dynamic streak count
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>🔥 Daily Streak</h1>", unsafe_allow_html=True)
-    streak_days = 14
-    today = datetime.now()
-    month = today.strftime("%B %Y")
+    st.markdown(f"<h3 style='text-align:center; color:#1A73E8; margin-top:6px;'>{month_name}</h3>", unsafe_allow_html=True)
+
     st.markdown(f"""
-    <div style='text-align:center;'>
-        <div style='background: linear-gradient(180deg, #3EA1F2, #1A73E8); width:180px; height:180px; border-radius:50%;
-        margin:auto; display:flex; align-items:center; justify-content:center; color:white; font-size:40px; font-weight:bold;'>
-            {streak_days} DAYS
+    <div style='text-align:center; margin-top:12px;'>
+        <div style='background: linear-gradient(180deg, #3EA1F2, #1A73E8); width:160px; height:160px; border-radius:50%;
+        margin:auto; display:flex; align-items:center; justify-content:center; color:white; font-size:36px; font-weight:bold;'>
+            {current_streak} DAYS
         </div>
     </div>
     """, unsafe_allow_html=True)
-    st.markdown(f"<h3 style='text-align:center; color:#1A73E8; margin-top:30px;'>{month}</h3>", unsafe_allow_html=True)
 
-    days_in_month = 30
-    # Your previously used completed days array:
-    completed_days = [1, 2, 5, 6, 7, 10, 11, 12, 13, 14, 15]
+    # Message below circle
+    if current_streak > 0:
+        st.success(f"🔥 You're on a {current_streak}-day streak! Keep it up!")
+    else:
+        # If user has no recorded completed days at all, show the "haven't started" message
+        all_completed_any_month = any(user_data[username].get("streak", {}).get("completed_days", []))
+        if not all_completed_any_month:
+            st.info("🎯 You haven't started your streak yet")
+        else:
+            st.info("⚠️ You have no active streak right now — start drinking to build one!")
 
-    grid_html = "<div style='display:grid; grid-template-columns:repeat(7, 1fr); gap:8px; text-align:center;'>"
-    for i in range(1, days_in_month + 1):
-        color = "#1A73E8" if i in completed_days else "#E0E0E0"
-        text_color = "white" if i in completed_days else "black"
-        grid_html += f"<div style='background-color:{color}; border-radius:8px; padding:10px; color:{text_color}; font-weight:bold;'>{i}</div>"
-    grid_html += "</div>"
+    st.write("---")
 
+    # Show calendar grid
     st.markdown(grid_html, unsafe_allow_html=True)
-    st.success("🔥 You're on a 14-day streak! Keep it up!")
+
+    st.write("---")
+    # Legend
+    st.markdown("""
+    <div style='display:flex; gap:12px; justify-content:center; align-items:center; margin-top:10px;'>
+      <div style='display:flex; align-items:center; gap:6px;'><div style='width:18px; height:18px; background:#1A73E8; border-radius:4px;'></div> Blue = Goal met</div>
+      <div style='display:flex; align-items:center; gap:6px;'><div style='width:18px; height:18px; background:#E0E0E0; border-radius:4px;'></div> Gray = Not met / upcoming</div>
+      <div style='display:flex; align-items:center; gap:6px;'><div style='width:18px; height:18px; background:#FF4B4B; border-radius:4px;'></div> Red = Missed (streak broken)</div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.write("---")
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
