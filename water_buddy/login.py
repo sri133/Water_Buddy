@@ -21,177 +21,168 @@ else:
     api_key = os.getenv("GOOGLE_API_KEY")
 
 if not api_key:
-    st.error("❌ Google API key not found. Please add it in Streamlit Secrets or .env file.")
+    st.error("⚠️ Google API Key not found. Please set it in Streamlit Secrets or .env file.")
 else:
     genai.configure(api_key=api_key)
 
 # -------------------------------
-# Helper functions
+# 📦 Constants and Helper Data
 # -------------------------------
-def calculate_streak(logs):
-    logs = sorted([datetime.strptime(d, "%Y-%m-%d") for d in logs])
-    streak = 0
-    today = datetime.today().date()
-    for i in range(len(logs) - 1, -1, -1):
-        if (today - logs[i].date()).days == streak:
-            streak += 1
-        else:
-            break
-    return streak
+COUNTRIES = [country.name for country in pycountry.countries]
 
-def load_user_data():
-    if os.path.exists("user_data.json"):
-        with open("user_data.json", "r") as f:
-            return json.load(f)
-    return {}
+def load_data():
+    if "user_data" not in st.session_state:
+        st.session_state.user_data = {
+            "name": "",
+            "age": "",
+            "gender": "",
+            "country": "",
+            "height": "",
+            "weight": "",
+            "water_goal": 2000,
+            "water_intake": 0,
+            "last_logged_date": str(date.today()),
+            "streak": 0,
+        }
 
-def save_user_data(data):
-    with open("user_data.json", "w") as f:
-        json.dump(data, f, indent=4)
-
-def calculate_daily_goal(weight, activity_level):
-    base = weight * 35
-    if activity_level == "Moderate":
-        base *= 1.1
-    elif activity_level == "High":
-        base *= 1.25
-    return round(base, 1)
+load_data()
 
 # -------------------------------
-# App Layout
+# 🧮 AI Water Goal Recommendation
 # -------------------------------
-st.set_page_config(page_title="💧 HP Partner", layout="wide")
-
-st.title("💧 HP Partner – Smart Hydration Tracker")
-st.markdown(
-    "<p style='color: #0077cc; font-size: 16px; margin-top: -8px;'>"
-    "💧 <b>Recommended:</b> Use calibrated water bottles for accurate tracking."
-    "</p>",
-    unsafe_allow_html=True
-)
-
-menu = ["Home", "Profile", "Report", "Chatbot"]
-choice = st.sidebar.selectbox("Navigation", menu)
-
-# -------------------------------
-# Load User Data
-# -------------------------------
-data = load_user_data()
-if "logs" not in data:
-    data["logs"] = {}
+def get_ai_water_goal(age, gender, weight, country):
+    prompt = f"""
+    You are a hydration expert AI. Based on:
+    - Age: {age}
+    - Gender: {gender}
+    - Weight: {weight} kg
+    - Country: {country}
+    Give a simple, short, numeric daily water intake goal in milliliters for a healthy person.
+    Example: 2500 ml
+    """
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    response = model.generate_content(prompt)
+    text = response.text.strip()
+    value = re.findall(r'\d+', text)
+    return int(value[0]) if value else 2000
 
 # -------------------------------
-# HOME PAGE
+# 💧 Track Water Intake and Streak
 # -------------------------------
-if choice == "Home":
-    st.header("🏠 Home - Water Intake Log")
+def update_streak():
+    today = date.today()
+    last_logged = datetime.strptime(st.session_state.user_data["last_logged_date"], "%Y-%m-%d").date()
 
-    today = date.today().strftime("%Y-%m-%d")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        intake = st.number_input("Enter today's water intake (ml)", min_value=0, step=50)
-    with col2:
-        if st.button("Save Intake"):
-            data["logs"][today] = intake
-            save_user_data(data)
-            st.success("💧 Water intake logged successfully!")
-
-    if data.get("logs"):
-        streak = calculate_streak(list(data["logs"].keys()))
-        st.info(f"🔥 Current streak: {streak} days")
-
-        # Daily goal progress
-        if "weight" in data and "activity_level" in data:
-            goal = calculate_daily_goal(data["weight"], data["activity_level"])
-            today_intake = data["logs"].get(today, 0)
-            progress = min(today_intake / goal, 1.0)
-            st.progress(progress)
-            st.write(f"📊 Today's progress: {today_intake} / {goal} ml")
-        else:
-            st.warning("⚙️ Set your profile details to get personalized water goals.")
-
-# -------------------------------
-# PROFILE PAGE
-# -------------------------------
-elif choice == "Profile":
-    st.header("👤 Personal Settings")
-
-    name = st.text_input("Name", data.get("name", ""))
-    age = st.number_input("Age", min_value=1, max_value=120, value=data.get("age", 25))
-    weight = st.number_input("Weight (kg)", min_value=1, value=data.get("weight", 60))
-    activity_level = st.selectbox(
-        "Activity Level",
-        ["Low", "Moderate", "High"],
-        index=["Low", "Moderate", "High"].index(data.get("activity_level", "Moderate"))
-    )
-
-    if st.button("Save Profile"):
-        data.update({"name": name, "age": age, "weight": weight, "activity_level": activity_level})
-        save_user_data(data)
-        st.success("✅ Profile updated successfully!")
-
-# -------------------------------
-# REPORT PAGE
-# -------------------------------
-elif choice == "Report":
-    st.header("📊 Water Intake Report")
-
-    if data.get("logs"):
-        df = pd.DataFrame(list(data["logs"].items()), columns=["Date", "Water (ml)"])
-        df["Date"] = pd.to_datetime(df["Date"])
-        df = df.sort_values("Date")
-
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df["Date"], y=df["Water (ml)"], mode="lines+markers", name="Water Intake"))
-        fig.update_layout(
-            title="Water Intake Over Time",
-            xaxis_title="Date",
-            yaxis_title="Water (ml)",
-            hovermode="x unified"
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-        # 💡 Added Tip Below Chart
-        st.markdown(
-            "<p style='color: gray; font-size: 14px; margin-top: -10px;'>"
-            "🖱️ <b>Tip:</b> Double click on the graph to return to normal view or zoom out."
-            "</p>",
-            unsafe_allow_html=True
-        )
-
-        avg_intake = round(df["Water (ml)"].mean(), 1)
-        st.metric("📈 Average Daily Intake", f"{avg_intake} ml")
-
+    if today == last_logged:
+        pass  # same day
+    elif today - last_logged == timedelta(days=1):
+        st.session_state.user_data["streak"] += 1
+        st.session_state.user_data["last_logged_date"] = str(today)
     else:
-        st.warning("⚠️ No water intake logs found. Add your first entry on the Home page.")
+        st.session_state.user_data["streak"] = 1
+        st.session_state.user_data["last_logged_date"] = str(today)
 
 # -------------------------------
-# CHATBOT PAGE
+# 🏠 Home Page
 # -------------------------------
-elif choice == "Chatbot":
-    st.header("🤖 Hydration Assistant Chatbot")
-    st.caption("Ask me about hydration tips, bottle sizes, or how to stay consistent!")
+def home_page():
+    st.title("💧 HP PARTNER")
+    st.subheader("Stay Hydrated. Stay Healthy.")
 
-    user_message = st.text_input("💬 Type your question:")
+    st.markdown("### Track your daily water intake")
+    intake = st.number_input("Enter water intake (ml):", min_value=0, step=100)
+    if st.button("Log Intake"):
+        st.session_state.user_data["water_intake"] += intake
+        update_streak()
+        st.success(f"Logged {intake} ml of water!")
+
+    # Animated water level
+    goal = st.session_state.user_data["water_goal"]
+    intake = st.session_state.user_data["water_intake"]
+    percentage = min(intake / goal * 100, 100)
+
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=percentage,
+        title={'text': "Hydration Progress"},
+        gauge={'axis': {'range': [0, 100]},
+               'bar': {'color': "blue"},
+               'steps': [{'range': [0, 50], 'color': "lightgray"},
+                         {'range': [50, 100], 'color': "lightblue"}]}
+    ))
+    st.plotly_chart(fig)
+
+    st.write(f"**Daily Goal:** {goal} ml")
+    st.write(f"**Today's Intake:** {intake} ml")
+    st.write(f"🔥 **Current Streak:** {st.session_state.user_data['streak']} days")
+
+# -------------------------------
+# ⚙️ Personal Settings
+# -------------------------------
+def settings_page():
+    st.header("⚙️ Personal Settings")
+
+    with st.form("settings_form"):
+        name = st.text_input("Name", st.session_state.user_data["name"])
+        age = st.number_input("Age", min_value=1, max_value=120, value=int(st.session_state.user_data["age"] or 18))
+        gender = st.selectbox("Gender", ["Male", "Female", "Other"])
+        country = st.selectbox("Country", COUNTRIES)
+        height = st.number_input("Height (cm)", min_value=50, max_value=250, value=int(st.session_state.user_data["height"] or 170))
+        weight = st.number_input("Weight (kg)", min_value=20, max_value=200, value=int(st.session_state.user_data["weight"] or 60))
+
+        if st.form_submit_button("💾 Save and Get AI Goal"):
+            st.session_state.user_data.update({
+                "name": name, "age": age, "gender": gender, "country": country,
+                "height": height, "weight": weight
+            })
+            ai_goal = get_ai_water_goal(age, gender, weight, country)
+            st.session_state.user_data["water_goal"] = ai_goal
+            st.success(f"✅ Saved! Your AI-recommended goal is {ai_goal} ml/day.")
+
+# -------------------------------
+# 📈 Report Page
+# -------------------------------
+def report_page():
+    st.header("📈 Hydration Report")
+    today = date.today()
+    streak = st.session_state.user_data["streak"]
+
+    days = [today - timedelta(days=i) for i in range(6, -1, -1)]
+    intake = [max(0, st.session_state.user_data["water_goal"] - (i * 100)) for i in range(7)]
+
+    df = pd.DataFrame({"Date": days, "Intake (ml)": intake})
+    st.line_chart(df, x="Date", y="Intake (ml)")
+
+    st.metric("🔥 Current Streak", f"{streak} days")
+    st.metric("💧 Water Goal", f"{st.session_state.user_data['water_goal']} ml")
+
+# -------------------------------
+# 💬 Chatbot Page
+# -------------------------------
+def chatbot_page():
+    st.header("💬 HP Partner Chatbot")
+    st.write("Ask anything about hydration, health, or daily wellness!")
+
+    user_input = st.text_area("Your Question:")
     if st.button("Ask"):
-        if user_message.strip():
-            try:
-                model = genai.GenerativeModel("gemini-1.5-flash")
-                response = model.generate_content(
-                    f"Answer as a friendly hydration assistant, briefly and clearly: {user_message}"
-                )
-                st.write(response.text)
-            except Exception as e:
-                st.error(f"⚠️ Gemini API error: {e}")
-        else:
-            st.warning("Please enter a question first.")
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(user_input)
+        st.info(response.text)
 
 # -------------------------------
-# FOOTER
+# 🌐 Navigation
 # -------------------------------
-st.markdown(
-    "<hr><center>💧 <i>Stay Hydrated, Stay Healthy – HP Partner © 2025</i></center>",
-    unsafe_allow_html=True
-)
+st.sidebar.title("🚀 Navigation")
+page = st.sidebar.radio("Go to", ["Home", "Settings", "Report", "Chatbot"])
+
+if page == "Home":
+    home_page()
+elif page == "Settings":
+    settings_page()
+elif page == "Report":
+    report_page()
+elif page == "Chatbot":
+    chatbot_page()
+
+st.sidebar.markdown("---")
+st.sidebar.caption("Made with ❤️ using Streamlit and Google Gemini AI")
