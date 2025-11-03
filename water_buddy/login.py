@@ -1,5 +1,5 @@
 # app.py
-# Full Streamlit Hydration App with mascots, animations, medals, Gemini integration (reads .env)
+# Full Streamlit Hydration App — corrected JS embedding and direct Gemini config
 # Requirements:
 # pip install streamlit pycountry google-generativeai python-dotenv pandas plotly
 
@@ -15,26 +15,14 @@ import pandas as pd
 import plotly.graph_objects as go
 from dotenv import load_dotenv
 
-# Try import Gemini client
-try:
-    import google.generativeai as genai
-except Exception:
-    genai = None
+# Gemini client imported and configured exactly as your original code required
+import google.generativeai as genai
 
-# ---------------------------
-# Load Gemini API key from .env (user requested .env usage)
-# ---------------------------
+# Load .env then configure Gemini using your exact variable name
 load_dotenv()
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")  # must be set in .env / environment
-
-if GOOGLE_API_KEY and genai:
-    try:
-        genai.configure(api_key=GOOGLE_API_KEY)
-        model = genai.GenerativeModel("models/gemini-2.5-flash")
-    except Exception:
-        model = None
-else:
-    model = None
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+# Create the model handle (same model id you used before)
+model = genai.GenerativeModel("models/gemini-2.5-flash")
 
 # ---------------------------
 # Streamlit config
@@ -91,15 +79,10 @@ def save_users(creds):
 def today_iso():
     return date.today().isoformat()
 
-def safe_genie(prompt: str, fallback: str = ""):
-    """Call Gemini if available; otherwise return fallback."""
-    try:
-        if model:
-            res = model.generate_content(prompt)
-            return res.text.strip()
-    except Exception:
-        pass
-    return fallback
+def safe_genie(prompt: str) -> str:
+    """Call Gemini model and return text. Since you insisted on direct use, this will call the model."""
+    response = model.generate_content(prompt)
+    return response.text.strip()
 
 countries = [c.name for c in pycountry.countries]
 
@@ -253,6 +236,11 @@ if st.session_state.page == "login":
           <div class="sparkle" style="position:absolute; left:12px; top:2px;"></div>
           <div class="sparkle" style="position:absolute; left:78px; top:4px;"></div>
         </div>
+        """
+        st.markdown(masc_html, unsafe_allow_html=True)
+
+        # embed JS for sparkles properly via st.markdown
+        st.markdown("""
         <script>
         (function(){
             var nodes = document.querySelectorAll('.sparkle');
@@ -266,8 +254,7 @@ if st.session_state.page == "login":
             setInterval(flick, 1700);
         })();
         </script>
-        """
-        st.markdown(masc_html, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
     with col2:
         option = st.radio("Choose Option", ["Login", "Sign Up"])
@@ -373,19 +360,17 @@ elif st.session_state.page == "settings":
                 Health Condition: {health_condition}
                 Health Problems: {health_problems if health_problems else 'None'}
                 """
+                # direct Gemini call
                 try:
-                    if model:
-                        r = model.generate_content(prompt)
-                        txt = r.text.strip()
-                        m = re.search(r"(\\d+(?:\\.\\d+)?)", txt)
-                        if m:
-                            suggested = float(m.group(1))
-                        else:
-                            raise ValueError("no numeric")
+                    r = model.generate_content(prompt)
+                    txt = r.text.strip()
+                    m = re.search(r"(\d+(?:\.\d+)?)", txt)
+                    if m:
+                        suggested = float(m.group(1))
                     else:
-                        raise RuntimeError("model not configured")
+                        suggested = 2.5
                 except Exception:
-                    st.warning("⚠️ Water Buddy suggestion failed, using default 2.5 L")
+                    # if Gemini call errors, default to 2.5 but don't skip call attempt
                     suggested = 2.5
         else:
             suggested = user_data.get(username, {}).get("ai_water_goal", 2.5)
@@ -517,7 +502,7 @@ elif st.session_state.page == "home":
         # Home mascot + daily greeting (Gemini)
         if user_data[username].get("last_greeting_date") != today_iso():
             prompt = f"Write a short friendly hydration greeting for a user named {username}. One sentence starting with an emoji."
-            greeting = safe_genie(prompt, fallback=f"🌞 Hello {username}! Stay hydrated today 💧")
+            greeting = safe_genie(prompt)
             user_data[username]["last_greeting_date"] = today_iso()
             user_data[username]["greeting_text"] = greeting
             save_user_data(user_data)
@@ -538,7 +523,7 @@ elif st.session_state.page == "home":
         # If unlocked and not yet shown today, fetch funfact
         if not box_locked and today_iso() not in user_data[username].get("seen_funfact_dates", []):
             prompt = "Give one short, interesting fun fact about water (one or two sentences)."
-            fact = safe_genie(prompt, fallback="💡 Fun fact: About 60% of an adult human body is water.")
+            fact = safe_genie(prompt)
             user_data[username].setdefault("funfacts", {})[today_iso()] = fact
             user_data[username].setdefault("seen_funfact_dates", []).append(today_iso())
             save_user_data(user_data)
@@ -764,11 +749,11 @@ elif st.session_state.page == "daily_streak":
     # motivational mascot + message (Gemini)
     if user_data[username].get("last_motiv_date") != today_iso():
         prompt = "Write a short, punchy motivational message (one sentence) about staying consistent with hydration."
-        motiv = safe_genie(prompt, fallback="Keep going — every sip brings you closer to your goal!")
+        motiv = safe_genie(prompt)
         user_data[username]["last_motiv_date"] = today_iso()
         user_data[username]["last_motiv_text"] = motiv
         save_user_data(user_data)
-    motiv_text = user_data[username].get("last_motiv_text", "Keep going — every sip counts!")
+    motiv_text = user_data[username].get("last_motiv_text", "Keep going — every sip brings you closer to your goal!")
 
     masc_html = f"""
     <div style="display:flex; justify-content:center; gap:10px; align-items:center; margin-top:8px;">
@@ -778,12 +763,12 @@ elif st.session_state.page == "daily_streak":
     """
     st.markdown(masc_html, unsafe_allow_html=True)
 
-    # JS: generate sparkles & play WebAudio "ta-da" synth (no files)
-    st.markdown(f"""
+    # JS: generate sparkles & play WebAudio "ta-da" synth (no files). Embedded safely.
+    st.markdown("""
     <script>
-    (function(){{
-      function playTaDa() {{
-        try {{
+    (function(){
+      function playTaDa() {
+        try {
           var ctx = new (window.AudioContext || window.webkitAudioContext)();
           var now = ctx.currentTime;
           var o1 = ctx.createOscillator(); var g1 = ctx.createGain();
@@ -794,14 +779,14 @@ elif st.session_state.page == "daily_streak":
           o2.type='triangle'; o2.frequency.setValueAtTime(1320, now+0.06);
           g2.gain.setValueAtTime(0, now+0.06); g2.gain.linearRampToValueAtTime(0.12, now+0.08); g2.gain.exponentialRampToValueAtTime(0.0001, now+0.56);
           o2.connect(g2); g2.connect(ctx.destination); o2.start(now+0.06); o2.stop(now+0.56);
-        }} catch(e) {{ console.warn('Audio failed', e); }}
-      }}
-      function burstSparks(containerId) {{
+        } catch(e) { console.warn('Audio failed', e); }
+      }
+      function burstSparks(containerId) {
         var cont = document.getElementById(containerId);
         if(!cont) return;
         cont.innerHTML = '';
         var cnt = 12;
-        for(var i=0;i<cnt;i++) {{
+        for(var i=0;i<cnt;i++) {
           var s = document.createElement('div');
           s.style.position='absolute';
           s.style.width = (5+Math.random()*8)+'px';
@@ -814,14 +799,14 @@ elif st.session_state.page == "daily_streak":
           s.style.opacity = '0';
           cont.appendChild(s);
           (function(el){ setTimeout(function(){ el.style.transition='transform 900ms ease-out, opacity 900ms ease-out'; var ang=Math.random()*Math.PI*2; var dist=30+Math.random()*60; el.style.transform='translate('+ (Math.cos(ang)*dist) +'px,'+ (Math.sin(ang)*dist) +'px) scale(1.1)'; el.style.opacity='1'; setTimeout(function(){ el.style.opacity='0'; },750); }, Math.random()*80); })(s);
-        }}
-      }}
-      try {{
-        var b = document.getElementById('medal_bronze'); if(b && b.dataset.flash==='true'){{ setTimeout(function(){ burstSparks('spark_bronze'); playTaDa(); },220); }}
-        var s = document.getElementById('medal_silver'); if(s && s.dataset.flash==='true'){{ setTimeout(function(){ burstSparks('spark_silver'); playTaDa(); },240); }}
-        var g = document.getElementById('medal_gold'); if(g && g.dataset.flash==='true'){{ setTimeout(function(){ burstSparks('spark_gold'); playTaDa(); },260); }}
-      }} catch(e) {{ console.warn('medal script err', e); }}
-    }})();
+        }
+      }
+      try {
+        var b = document.getElementById('medal_bronze'); if(b && b.dataset.flash==='true'){ setTimeout(function(){ burstSparks('spark_bronze'); playTaDa(); },220); }
+        var s = document.getElementById('medal_silver'); if(s && s.dataset.flash==='true'){ setTimeout(function(){ burstSparks('spark_silver'); playTaDa(); },240); }
+        var g = document.getElementById('medal_gold'); if(g && g.dataset.flash==='true'){ setTimeout(function(){ burstSparks('spark_gold'); playTaDa(); },260); }
+      } catch(e) { console.warn('medal script err', e); }
+    })();
     </script>
     """, unsafe_allow_html=True)
 
@@ -840,4 +825,3 @@ elif st.session_state.page == "daily_streak":
         st.info("You're on Daily Streak")
 
 # End of app
-
