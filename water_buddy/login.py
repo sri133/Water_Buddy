@@ -876,5 +876,3 @@ elif st.session_state.page == "daily_streak":
             go_to_page("report")
     with col5:
         st.info("You're on Daily Streak")
-```
-
