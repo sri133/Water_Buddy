@@ -1,468 +1,273 @@
 import streamlit as st
 import json
 import os
+from datetime import datetime, date
 import pycountry
-import re
-import pandas as pd
-from datetime import datetime
+import calendar
 from dotenv import load_dotenv
 import google.generativeai as genai
 
-# -------------------------------
-# ✅ Load API key from .env or Streamlit Secrets
-# -------------------------------
-api_key = None
-if "GOOGLE_API_KEY" in st.secrets:
-    api_key = st.secrets["GOOGLE_API_KEY"]
-else:
-    load_dotenv()
-    api_key = os.getenv("GOOGLE_API_KEY")
+# --------------------------
+# INITIAL SETUP
+# --------------------------
+load_dotenv()
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-if not api_key:
-    st.error("❌ Missing API key. Please add GOOGLE_API_KEY in your .env or Streamlit Secrets.")
-else:
-    genai.configure(api_key=api_key)
+st.set_page_config(page_title="Water Buddy 💧", layout="centered")
 
-model = genai.GenerativeModel("models/gemini-2.5-flash")
+# --------------------------
+# HELPER FUNCTIONS
+# --------------------------
+def go_to_page(page_name):
+    st.session_state.page = page_name
 
-# -------------------------------
-# ✅ Streamlit Page Config
-# -------------------------------
-st.set_page_config(page_title="HP PARTNER", page_icon="💧", layout="centered")
+def load_user_data():
+    if os.path.exists("user_data.json"):
+        with open("user_data.json", "r") as f:
+            return json.load(f)
+    return {}
 
-# -------------------------------
-# File setup
-# -------------------------------
-CREDENTIALS_FILE = "users.json"
-USER_DATA_FILE = "user_data.json"
-
-if os.path.exists(CREDENTIALS_FILE):
-    with open(CREDENTIALS_FILE, "r") as f:
-        users = json.load(f)
-else:
-    users = {}
-
-if os.path.exists(USER_DATA_FILE):
-    with open(USER_DATA_FILE, "r") as f:
-        user_data = json.load(f)
-else:
-    user_data = {}
-
-# -------------------------------
-# Streamlit session setup
-# -------------------------------
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "page" not in st.session_state:
-    st.session_state.page = "login"
-if "username" not in st.session_state:
-    st.session_state.username = ""
-if "water_intake_log" not in st.session_state:
-    st.session_state.water_intake_log = []
-if "total_intake" not in st.session_state:
-    st.session_state.total_intake = 0.0
-if "show_chatbot" not in st.session_state:
-    st.session_state.show_chatbot = False
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-
-# -------------------------------
-# Helper Functions
-# -------------------------------
 def save_user_data(data):
-    with open(USER_DATA_FILE, "w") as f:
+    with open("user_data.json", "w") as f:
         json.dump(data, f, indent=4)
 
-def go_to_page(page_name: str):
-    st.session_state.page = page_name
-    st.rerun()
+def load_streak_data():
+    if os.path.exists("streak_data.json"):
+        with open("streak_data.json", "r") as f:
+            return json.load(f)
+    return {}
 
-countries = [c.name for c in pycountry.countries]
+def save_streak_data(data):
+    with open("streak_data.json", "w") as f:
+        json.dump(data, f, indent=4)
 
-# -------------------------------
-# LOGIN PAGE
-# -------------------------------
-if st.session_state.page == "login":
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
-    st.markdown("### Login or Sign Up to Continue")
+# --------------------------
+# SESSION STATE SETUP
+# --------------------------
+if "page" not in st.session_state:
+    st.session_state.page = "home"
 
-    option = st.radio("Choose Option", ["Login", "Sign Up"])
-    username = st.text_input("Enter Username")
-    password = st.text_input("Enter Password", type="password")
+if "username" not in st.session_state:
+    st.session_state.username = "Guest"
 
-    if st.button("Submit"):
-        if option == "Sign Up":
-            if username in users:
-                st.error("❌ Username already exists.")
-            elif username == "" or password == "":
-                st.error("❌ Username and password cannot be empty.")
-            else:
-                users[username] = password
-                with open(CREDENTIALS_FILE, "w") as f:
-                    json.dump(users, f)
-                user_data[username] = {}
-                save_user_data(user_data)
-                st.success("✅ Account created successfully! Please login.")
+user_data = load_user_data()
+streak_data = load_streak_data()
 
-        elif option == "Login":
-            if username in users and users[username] == password:
-                st.session_state.logged_in = True
-                st.session_state.username = username
-                if username in user_data and "profile" in user_data[username]:
-                    go_to_page("home")
-                else:
-                    go_to_page("settings")
-            else:
-                st.error("❌ Invalid username or password.")
+# --------------------------
+# HOME PAGE
+# --------------------------
+if st.session_state.page == "home":
+    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Welcome to Water Buddy!</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center;'>Your smart hydration assistant powered by AI.</p>", unsafe_allow_html=True)
 
-# -------------------------------
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        if st.button("🏠 Home"):
+            st.info("You're already on the Home page.")
+    with col2:
+        if st.button("👤 Personal Settings"):
+            go_to_page("settings")
+    with col3:
+        if st.button("🚰 Water Intake"):
+            go_to_page("intake")
+    with col4:
+        if st.button("📈 Report"):
+            go_to_page("report")
+
+    st.write("")
+    st.image("https://cdn-icons-png.flaticon.com/512/6645/6645092.png", width=200)
+    st.markdown("<p style='text-align:center; color:gray;'>Stay hydrated, stay healthy!</p>", unsafe_allow_html=True)
+
+# --------------------------
 # PERSONAL SETTINGS PAGE
-# -------------------------------
+# --------------------------
 elif st.session_state.page == "settings":
-    if not st.session_state.logged_in:
-        go_to_page("login")
+    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>👤 Personal Settings</h1>", unsafe_allow_html=True)
 
-    username = st.session_state.username
-    saved = user_data.get(username, {}).get("profile", {})
+    username = st.text_input("Enter your name", value=st.session_state.username)
+    age = st.number_input("Age", min_value=5, max_value=100, value=17)
+    country = st.selectbox("Select your country", [country.name for country in pycountry.countries])
+    height = st.number_input("Height (cm)", min_value=50, max_value=250, value=170)
+    health_issue = st.text_area("Health issues (optional)", placeholder="E.g., kidney stone, dehydration, etc.")
 
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Personal Settings</h1>", unsafe_allow_html=True)
-
-    name = st.text_input("Name", value=saved.get("Name", username))
-    age = st.text_input("Age", value=saved.get("Age", ""))
-    country = st.selectbox("Country", countries, index=countries.index(saved.get("Country", "India")))
-    language = st.text_input("Language", value=saved.get("Language", ""))
-
-    st.write("---")
-    height_unit = st.radio("Height Unit", ["cm", "feet"], horizontal=True)
-    height = st.number_input(
-        f"Height ({height_unit})",
-        value=float(saved.get("Height", "0").split()[0]) if "Height" in saved else 0.0
-    )
-    weight_unit = st.radio("Weight Unit", ["kg", "lbs"], horizontal=True)
-    weight = st.number_input(
-        f"Weight ({weight_unit})",
-        value=float(saved.get("Weight", "0").split()[0]) if "Weight" in saved else 0.0
-    )
-
-    def calculate_bmi(weight, height, weight_unit, height_unit):
-        if height_unit == "feet":
-            height_m = height * 0.3048
-        else:
-            height_m = height / 100
-        if weight_unit == "lbs":
-            weight_kg = weight * 0.453592
-        else:
-            weight_kg = weight
-        return round(weight_kg / (height_m ** 2), 2) if height_m > 0 else 0
-
-    bmi = calculate_bmi(weight, height, weight_unit, height_unit)
-    st.write(f"**Your BMI is:** {bmi}")
-
-    health_condition = st.radio(
-        "Health condition", ["Excellent", "Fair", "Poor"],
-        horizontal=True,
-        index=["Excellent", "Fair", "Poor"].index(saved.get("Health Condition", "Excellent"))
-    )
-    health_problems = st.text_area("Health problems", value=saved.get("Health Problems", ""))
-
-    st.write("---")
-    old_profile = user_data.get(username, {}).get("profile", {})
-    new_profile_data = {
-        "Name": name,
-        "Age": age,
-        "Country": country,
-        "Language": language,
-        "Height": f"{height} {height_unit}",
-        "Weight": f"{weight} {weight_unit}",
-        "BMI": bmi,
-        "Health Condition": health_condition,
-        "Health Problems": health_problems,
-    }
-
-    if st.button("Save & Continue ➡️"):
-        recalc_needed = new_profile_data != old_profile
-        if recalc_needed:
-            with st.spinner("🤖 Water Buddy is calculating your ideal water intake..."):
-                prompt = f"""
-                You are Water Buddy, a smart hydration assistant.
-                Based on the following personal health information, suggest an ideal daily water intake goal in liters.
-                Only return a single numeric value in liters (no text, no units).
-                Age: {age}
-                Height: {height} {height_unit}
-                Weight: {weight} {weight_unit}
-                BMI: {bmi}
-                Health condition: {health_condition}
-                Health problems: {health_problems if health_problems else 'None'}
-                """
-                try:
-                    response = model.generate_content(prompt)
-                    text_output = response.text.strip()
-                    match = re.search(r"(\d+(\.\d+)?)", text_output)
-                    if match:
-                        suggested_water_intake = float(match.group(1))
-                    else:
-                        raise ValueError("No numeric value found in Water Buddy response.")
-                except Exception as e:
-                    st.warning(f"⚠️ Water Buddy suggestion failed, using default 2.5 L ({e})")
-                    suggested_water_intake = 2.5
-        else:
-            suggested_water_intake = user_data.get(username, {}).get("ai_water_goal", 2.5)
-            text_output = "Profile unchanged — using previous goal."
-
-        user_data[username] = user_data.get(username, {})
-        user_data[username]["profile"] = new_profile_data
-        user_data[username]["ai_water_goal"] = round(suggested_water_intake, 2)
+    if st.button("💾 Save Settings"):
+        user_data[username] = {
+            "age": age,
+            "country": country,
+            "height": height,
+            "health_issue": health_issue,
+        }
         save_user_data(user_data)
+        st.session_state.username = username
+        st.success("✅ Personal settings saved successfully!")
 
-        st.success(f"✅ Profile saved! Water Buddy suggests {suggested_water_intake:.2f} L/day 💧")
-        st.info(f"Water Buddy output: {text_output}")
-        go_to_page("water_profile")
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        if st.button("🏠 Home"): go_to_page("home")
+    with col2:
+        st.info("You're already on Personal Settings.")
+    with col3:
+        if st.button("🚰 Water Intake"): go_to_page("intake")
+    with col4:
+        if st.button("📈 Report"): go_to_page("report")
 
-# -------------------------------
+# --------------------------
 # WATER INTAKE PAGE
-# -------------------------------
-elif st.session_state.page == "water_profile":
+# --------------------------
+elif st.session_state.page == "intake":
+    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>🚰 Water Intake</h1>", unsafe_allow_html=True)
     username = st.session_state.username
-    saved = user_data.get(username, {}).get("water_profile", {})
-    ai_goal = user_data.get(username, {}).get("ai_water_goal", 2.5)
 
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Intake</h1>", unsafe_allow_html=True)
-    st.success(f"Your ideal daily water intake is **{ai_goal} L/day**, as suggested by Water Buddy 💧")
+    intake_goal = 2000  # default in ml
+    if username in user_data:
+        health_info = user_data[username].get("health_issue", "").lower()
+        if "stone" in health_info or "dehydration" in health_info:
+            intake_goal = 2500
+        elif "heart" in health_info:
+            intake_goal = 1800
 
-    daily_goal = st.slider("Set your daily water goal (L):", 0.5, 10.0, float(ai_goal), 0.1)
-    frequency_options = [f"{i} minutes" for i in range(5, 185, 5)]
-    selected_frequency = st.selectbox(
-        "🔔 Reminder Frequency:",
-        frequency_options,
-        index=frequency_options.index(saved.get("frequency", "30 minutes"))
-    )
+    st.markdown(f"<h4 style='text-align:center;'>Your daily goal: <span style='color:#1A73E8;'>{intake_goal} ml</span></h4>", unsafe_allow_html=True)
+    water_intake = st.number_input("Enter water intake (ml)", min_value=0, value=0, step=50)
 
-    if st.button("💾 Save & Continue ➡️"):
-        user_data[username]["water_profile"] = {"daily_goal": daily_goal, "frequency": selected_frequency}
-        save_user_data(user_data)
-        st.success("✅ Water profile saved successfully!")
-        go_to_page("home")
+    if st.button("💧 Add Water"):
+        if "total_intake" not in st.session_state:
+            st.session_state.total_intake = 0
+        st.session_state.total_intake += water_intake
+        st.success(f"Added {water_intake} ml! Total today: {st.session_state.total_intake} ml.")
 
-# -------------------------------
-# HOME PAGE (with Chatbot)
-# -------------------------------
-elif st.session_state.page == "home":
-    username = st.session_state.username
-    daily_goal = user_data.get(username, {}).get("water_profile", {}).get(
-        "daily_goal", user_data.get(username, {}).get("ai_water_goal", 2.5)
-    )
-
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
-
-    fill_percent = min(st.session_state.total_intake / daily_goal, 1.0) if daily_goal > 0 else 0
-    bottle_html = f"""
-    <div style='width: 120px; height: 300px; border: 3px solid #1A73E8; border-radius: 20px; position: relative; margin: auto;
-    background: linear-gradient(to top, #1A73E8 {fill_percent*100}%, #E0E0E0 {fill_percent*100}%);'>
-        <div style='position: absolute; bottom: 5px; width: 100%; text-align: center; color: #fff; font-weight: bold; font-size: 18px;'>
-            {round(st.session_state.total_intake,2)}L / {daily_goal}L
-        </div>
-    </div>
-    """
-    st.markdown(bottle_html, unsafe_allow_html=True)
-    st.write("---")
-
-    water_input = st.text_input("Enter water amount (in ml):", key="water_input")
-    if st.button("➕ Add Water"):
-        value = re.sub("[^0-9.]", "", water_input).strip()
-        if value:
-            try:
-                ml = float(value)
-                liters = ml / 1000
-                st.session_state.total_intake += liters
-                st.session_state.water_intake_log.append(f"{ml} ml")
-                st.success(f"✅ Added {ml} ml of water!")
-                st.rerun()
-                st.stop()
-            except ValueError:
-                st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
+        # Check if goal met and update streak data
+        today_str = str(date.today())
+        if st.session_state.total_intake >= intake_goal:
+            streak_data[today_str] = "completed"
+            save_streak_data(streak_data)
         else:
-            st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
+            streak_data[today_str] = "not_completed"
+            save_streak_data(streak_data)
 
-    if st.session_state.water_intake_log:
-        st.write("### Today's Log:")
-        for i, entry in enumerate(st.session_state.water_intake_log, 1):
-            st.write(f"{i}. {entry}")
+    if "total_intake" in st.session_state:
+        progress = min(st.session_state.total_intake / intake_goal, 1.0)
+        st.progress(progress)
+        st.markdown(f"<p style='text-align:center;'>Progress: {progress * 100:.1f}%</p>", unsafe_allow_html=True)
 
-    st.write("---")
-    col1, col2, col3, col4, col5 = st.columns(5)
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        if st.button("👤 Personal Settings"):
-            go_to_page("settings")
+        if st.button("🏠 Home"): go_to_page("home")
     with col2:
-        if st.button("🚰 Water Intake"):
-            go_to_page("water_profile")
+        if st.button("👤 Personal Settings"): go_to_page("settings")
     with col3:
-        if st.button("📈 Report"):
-            go_to_page("report")
+        st.info("You're already on Water Intake.")
     with col4:
-        if st.button("🔥 Daily Streak"):
-            go_to_page("daily_streak")
-    with col5:
-        if st.button("🚪 Logout"):
-            st.session_state.logged_in = False
-            go_to_page("login")
+        if st.button("📈 Report"): go_to_page("report")
 
-    # -------------------------------
-    # 🤖 Water Buddy Chatbot Popup (Fixed header + removed scrollbar)
-    # -------------------------------
-    st.markdown("""
-    <style>
-    .chat-button {
-        position: fixed;
-        bottom: 25px;
-        right: 25px;
-        background-color: #1A73E8;
-        border-radius: 50%;
-        width: 60px;
-        height: 60px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-size: 28px;
-        cursor: pointer;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        z-index: 999;
-    }
-    .chat-window {
-        position: fixed;
-        bottom: 100px;
-        right: 25px;
-        width: 350px;
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        padding: 15px;
-        z-index: 1000;
-        overflow-y: auto;
-        max-height: 400px;
-        scrollbar-width: none;
-    }
-    .chat-window::-webkit-scrollbar {
-        display: none;
-    }
-    .bot-message {
-        text-align: left;
-        color: #222;
-        background: #F1F1F1;
-        padding: 8px 10px;
-        border-radius: 10px;
-        margin: 5px 0;
-        display: inline-block;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    chat_button_clicked = st.button("🤖", key="chat_button", help="Chat with Water Buddy")
-    if chat_button_clicked:
-        st.session_state.show_chatbot = not st.session_state.show_chatbot
-
-    if st.session_state.show_chatbot:
-        with st.container():
-            st.markdown("<div class='chat-window'>", unsafe_allow_html=True)
-            st.markdown("""
-            <div style='text-align:center; color:#1A73E8; font-weight:600; font-size:18px;'>
-                💬 Water Buddy <span style='font-size:14px; color:#555;'>— powered by Gemini 2.5 Flash</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Only show bot messages (hide user text)
-            for entry in st.session_state.chat_history:
-                if entry["sender"] == "bot":
-                    st.markdown(f"<div class='bot-message'>🤖 {entry['text']}</div>", unsafe_allow_html=True)
-
-            user_msg = st.text_input("Type your message...", key="chat_input")
-            if st.button("Send", key="send_btn"):
-                if user_msg.strip():
-                    try:
-                        prompt = f"You are Water Buddy, a friendly AI hydration assistant. Respond conversationally.\nUser: {user_msg}"
-                        response = model.generate_content(prompt)
-                        reply = response.text.strip()
-                    except Exception:
-                        reply = "⚠️ Sorry, I’m having trouble connecting right now."
-                    st.session_state.chat_history.append({"sender": "bot", "text": reply})
-                    st.rerun()
-
-            st.markdown("</div>", unsafe_allow_html=True)
-
-# -------------------------------
-# REPORT PAGE (restored old design)
-# -------------------------------
+# --------------------------
+# REPORT PAGE
+# --------------------------
 elif st.session_state.page == "report":
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>📊 Weekly Report</h1>", unsafe_allow_html=True)
-    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    progress = [100, 100, 75, 100, 90, 60, 100]
-    avg = sum(progress) / len(progress)
-    df = pd.DataFrame({"Day": days, "Progress (%)": progress})
-    st.bar_chart(df.set_index("Day"))
-    st.write(f"### Weekly Avg: {avg:.0f}%")
-    st.write("Goals Met: 5/7 days | Streak: 3 days")
-    st.write("---")
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        if st.button("🏠 Home"):
-            go_to_page("home")
-    with col2:
-        if st.button("👤 Personal Settings"):
-            go_to_page("settings")
-    with col3:
-        if st.button("🚰 Water Intake"):
-            go_to_page("water_profile")
-    with col4:
-        st.info("You're on Report")
-    with col5:
-        if st.button("🔥 Daily Streak"):
-            go_to_page("daily_streak")
+    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>📈 Weekly Report</h1>", unsafe_allow_html=True)
 
-# -------------------------------
-# DAILY STREAK PAGE (restored old design)
-# -------------------------------
+    week_days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    completion = [100, 100, 75, 100, 90, 60, 100]
+
+    st.markdown("### 💧 Water Intake Summary")
+    for i in range(7):
+        bar = "💧" * (completion[i] // 10)
+        st.markdown(f"{week_days[i]} — {completion[i]}% {bar}")
+
+    avg = sum(completion) / len(completion)
+    st.markdown(f"### 🧾 Weekly Avg: **{avg:.0f}%**")
+    st.markdown("✅ Goals Met: **5/7 Days**")
+    st.markdown("🔥 Current Streak: **3 Days**")
+
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        if st.button("🏠 Home"): go_to_page("home")
+    with col2:
+        if st.button("👤 Personal Settings"): go_to_page("settings")
+    with col3:
+        if st.button("🚰 Water Intake"): go_to_page("intake")
+    with col4:
+        if st.button("🔥 Daily Streak"): go_to_page("daily_streak")
+
+# --------------------------
+# UPDATED DAILY STREAK PAGE
+# --------------------------
 elif st.session_state.page == "daily_streak":
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>🔥 Daily Streak</h1>", unsafe_allow_html=True)
-    streak_days = 14
-    today = datetime.now()
-    month = today.strftime("%B %Y")
+    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 DAILY STREAK</h1>", unsafe_allow_html=True)
+
+    today = date.today()
+    month_name = today.strftime("%B %Y")
+    days_in_month = calendar.monthrange(today.year, today.month)[1]
+
+    # Calculate streak count
+    sorted_days = sorted(streak_data.keys())
+    current_streak = 0
+    for d in reversed(sorted_days):
+        if streak_data[d] == "completed":
+            current_streak += 1
+        else:
+            break
+
+    # Circle display
     st.markdown(f"""
-    <div style='text-align:center;'>
-        <div style='background: linear-gradient(180deg, #3EA1F2, #1A73E8); width:180px; height:180px; border-radius:50%;
-        margin:auto; display:flex; align-items:center; justify-content:center; color:white; font-size:40px; font-weight:bold;'>
-            {streak_days} DAYS
+        <div style='text-align:center; margin-top:-20px;'>
+            <div style='
+                background: linear-gradient(180deg, #3EA1F2, #1A73E8);
+                width:180px; height:180px; border-radius:50%;
+                margin:auto; display:flex; align-items:center; justify-content:center;
+                color:white; font-size:40px; font-weight:bold;'>
+                {current_streak} DAYS
+            </div>
         </div>
-    </div>
     """, unsafe_allow_html=True)
-    st.markdown(f"<h3 style='text-align:center; color:#1A73E8; margin-top:30px;'>{month}</h3>", unsafe_allow_html=True)
 
-    days_in_month = 30
-    # Your previously used completed days array:
-    completed_days = [1, 2, 5, 6, 7, 10, 11, 12, 13, 14, 15]
+    st.markdown(f"<h3 style='text-align:center; color:#1A73E8; margin-top:30px;'>{month_name}</h3>", unsafe_allow_html=True)
 
-    grid_html = "<div style='display:grid; grid-template-columns:repeat(7, 1fr); gap:8px; text-align:center;'>"
-    for i in range(1, days_in_month + 1):
-        color = "#1A73E8" if i in completed_days else "#E0E0E0"
-        text_color = "white" if i in completed_days else "black"
-        grid_html += f"<div style='background-color:{color}; border-radius:8px; padding:10px; color:{text_color}; font-weight:bold;'>{i}</div>"
-    grid_html += "</div>"
+    # Calendar grid
+    cols = st.columns(7)
+    week_day = 0
+    for day in range(1, days_in_month + 1):
+        day_str = str(date(today.year, today.month, day))
+        color = "#D3D3D3"  # default gray
+        text_color = "black"
 
-    st.markdown(grid_html, unsafe_allow_html=True)
-    st.success("🔥 You're on a 14-day streak! Keep it up!")
-    st.write("---")
-    col1, col2, col3, col4, col5 = st.columns(5)
+        if day_str in streak_data:
+            if streak_data[day_str] == "completed":
+                color = "#1A73E8"  # blue
+                text_color = "white"
+            elif streak_data[day_str] == "not_completed":
+                color = "#FF4C4C"  # red
+
+        if week_day == 7:
+            week_day = 0
+            cols = st.columns(7)
+
+        with cols[week_day]:
+            st.markdown(
+                f"<div style='text-align:center; background-color:{color}; color:{text_color}; padding:10px; margin:4px; border-radius:8px;'>{day}</div>",
+                unsafe_allow_html=True,
+            )
+        week_day += 1
+
+    # Dynamic message
+    st.markdown("---")
+    if current_streak == 0:
+        st.markdown("<p style='text-align:center; color:red;'>🎯 You haven’t started your streak yet.</p>", unsafe_allow_html=True)
+    elif current_streak < 7:
+        st.markdown(f"<p style='text-align:center; color:#1A73E8;'>🔥 You’re on a {current_streak}-day streak! Keep going!</p>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<p style='text-align:center; color:#1A73E8;'>🏅 Amazing! {current_streak}-day streak strong!</p>", unsafe_allow_html=True)
+
+    # Navigation
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        if st.button("🏠 Home"):
-            go_to_page("home")
+        if st.button("🏠 Home"): go_to_page("home")
     with col2:
-        if st.button("👤 Personal Settings"):
-            go_to_page("settings")
+        if st.button("👤 Personal Settings"): go_to_page("settings")
     with col3:
-        if st.button("🚰 Water Intake"):
-            go_to_page("water_profile")
+        if st.button("📈 Report"): go_to_page("report")
     with col4:
-        if st.button("📈 Report"):
-            go_to_page("report")
-    with col5:
-        st.info("You're on Daily Streak")
+        st.info("You're already on Daily Streak.")
