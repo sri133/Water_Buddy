@@ -1,53 +1,56 @@
 # app.py
-# Streamlit hydration app — full version with mascots, medals, sparkle, rotating shine, and WebAudio "ta-da" synth.
-# Requires: streamlit, pycountry, plotly, google-generativeai, python-dotenv, pandas
-# Put your Gemini API key in Streamlit secrets as GOOGLE_API_KEY or in .env
+# Full Streamlit Hydration App with mascots, animations, medals, Gemini integration (reads .env)
+# Requirements:
+# pip install streamlit pycountry google-generativeai python-dotenv pandas plotly
+
+import os
+import json
+import re
+import calendar
+from datetime import date, datetime, timedelta
 
 import streamlit as st
-import json, os, re, calendar
 import pycountry
 import pandas as pd
-from datetime import date, datetime, timedelta
-from dotenv import load_dotenv
 import plotly.graph_objects as go
+from dotenv import load_dotenv
 
-# Try to import Gemini client if available
+# Try import Gemini client
 try:
     import google.generativeai as genai
 except Exception:
     genai = None
 
-# ------------- Load API key -------------
-api_key = None
-if "GOOGLE_API_KEY" in st.secrets:
-    api_key = st.secrets["GOOGLE_API_KEY"]
-else:
-    load_dotenv()
-    api_key = os.getenv("GOOGLE_API_KEY")
+# ---------------------------
+# Load Gemini API key from .env (user requested .env usage)
+# ---------------------------
+load_dotenv()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")  # must be set in .env / environment
 
-if api_key and genai:
+if GOOGLE_API_KEY and genai:
     try:
-        genai.configure(api_key=api_key)
+        genai.configure(api_key=GOOGLE_API_KEY)
         model = genai.GenerativeModel("models/gemini-2.5-flash")
     except Exception:
         model = None
 else:
     model = None
 
-# ---------------- Page config ----------------
+# ---------------------------
+# Streamlit config
+# ---------------------------
 st.set_page_config(page_title="HP PARTNER", page_icon="💧", layout="centered")
 
-# ---------------- Files ----------------
+# ---------------------------
+# Files & ensure existence
+# ---------------------------
 CREDENTIALS_FILE = "users.json"
 USER_DATA_FILE = "user_data.json"
 
-# ensure files exist
-if not os.path.exists(CREDENTIALS_FILE):
-    with open(CREDENTIALS_FILE, "w") as f:
-        json.dump({}, f)
-if not os.path.exists(USER_DATA_FILE):
-    with open(USER_DATA_FILE, "w") as f:
-        json.dump({}, f)
+for fpath in (CREDENTIALS_FILE, USER_DATA_FILE):
+    if not os.path.exists(fpath):
+        with open(fpath, "w") as f:
+            json.dump({}, f)
 
 with open(CREDENTIALS_FILE, "r") as f:
     try:
@@ -60,7 +63,9 @@ with open(USER_DATA_FILE, "r") as f:
     except Exception:
         user_data = {}
 
-# ---------------- Session defaults ----------------
+# ---------------------------
+# Session defaults
+# ---------------------------
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "page" not in st.session_state:
@@ -72,7 +77,9 @@ if "chat_history" not in st.session_state:
 if "show_chatbot" not in st.session_state:
     st.session_state.show_chatbot = False
 
-# ---------------- Helpers ----------------
+# ---------------------------
+# Helpers
+# ---------------------------
 def save_user_data(data):
     with open(USER_DATA_FILE, "w") as f:
         json.dump(data, f, indent=4, sort_keys=True)
@@ -81,15 +88,11 @@ def save_users(creds):
     with open(CREDENTIALS_FILE, "w") as f:
         json.dump(creds, f, indent=4, sort_keys=True)
 
-def go_to_page(p):
-    st.session_state.page = p
-    st.experimental_rerun()
-
 def today_iso():
     return date.today().isoformat()
 
 def safe_genie(prompt: str, fallback: str = ""):
-    # minimal safe wrapper for Gemini text
+    """Call Gemini if available; otherwise return fallback."""
     try:
         if model:
             res = model.generate_content(prompt)
@@ -100,16 +103,36 @@ def safe_genie(prompt: str, fallback: str = ""):
 
 countries = [c.name for c in pycountry.countries]
 
-# ---------------- Common CSS (mascots, sparkles, medals, etc.) ----------------
+# ---------------------------
+# Common CSS (keeps original colors + gentle modern upgrades)
+# ---------------------------
 COMMON_CSS = """
 <style>
-/* Mascot and bubble styles */
-.mascot-wrap { display:flex; align-items:center; gap:12px; }
-.mascot-svg { width:120px; height:120px; display:block; }
-.mascot-small { width:72px; height:72px; display:block; }
+/* keep original blue theme with subtle modern touches */
+body { background: linear-gradient(180deg, #ffffff, #f7fbff); }
+
+/* headings */
+h1 { font-weight:700; }
+.hint { color:#666; font-size:13px; }
+
+.centered { text-align:center; }
+
+/* bottle hint */
+.pulse-hint {
+  display:inline-block; padding:6px 10px;
+  background: linear-gradient(90deg, rgba(26,115,232,0.06), rgba(26,115,232,0.02));
+  border-radius:8px; color:#1A73E8; font-size:13px;
+}
+
+/* mascots, speech bubbles */
+.mascot-wrap { display:flex; gap:12px; align-items:center; }
+.mascot-svg { width:120px; height:120px; }
+.mascot-small { width:72px; height:72px; }
+
 .speech-bubble {
-  background: #fff; border-radius:14px; padding:10px 12px; box-shadow:0 8px 26px rgba(0,0,0,0.12);
-  font-size:14px; color:#222; max-width:320px; line-height:1.25;
+  background:#fff; border-radius:12px; padding:10px 12px;
+  box-shadow:0 8px 26px rgba(0,0,0,0.08); font-size:14px; color:#222;
+  max-width:320px; line-height:1.25;
 }
 .speech-cloud { position:relative; }
 .speech-cloud:after {
@@ -117,23 +140,17 @@ COMMON_CSS = """
   border-top:10px solid #fff; border-left:8px solid transparent; border-right:8px solid transparent;
 }
 
-/* float animations */
-@keyframes floaty { 0%{transform:translateY(0);} 50%{transform:translateY(-8px);} 100%{transform:translateY(0);} }
-@keyframes floaty-small { 0%{transform:translateY(0);} 50%{transform:translateY(-6px);} 100%{transform:translateY(0);} }
+/* float animations (gentle) */
+@keyframes floaty { 0%{transform:translateY(0);}50%{transform:translateY(-8px);}100%{transform:translateY(0);} }
+@keyframes floaty-small { 0%{transform:translateY(0);}50%{transform:translateY(-6px);}100%{transform:translateY(0);} }
 
-/* sparkle tiny */
-.sparkle { position:absolute; width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,0.95); box-shadow:0 0 8px rgba(255,255,255,0.9); opacity:0; }
-.sparkle.ani { animation: sparkleA 1.0s ease-out forwards; }
+/* sparkle style */
+.sparkle { position:absolute; width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,0.95); box-shadow:0 0 8px rgba(255,255,255,0.95); opacity:0; }
+.sparkle.ani { animation: sparkleA 0.95s ease-out forwards; }
 @keyframes sparkleA { 0%{opacity:0; transform:scale(0.5);} 20%{opacity:1; transform:scale(1);} 100%{opacity:0; transform:scale(1.2) translateY(-16px);} }
 
-/* pulse hint */
-.pulse-hint { display:inline-block; padding:6px 10px; background:linear-gradient(90deg, rgba(26,115,232,0.06), rgba(26,115,232,0.02)); border-radius:8px; color:#1A73E8; font-size:13px; }
-
-/* Locked box */
-.locked-box { width:140px; height:120px; border-radius:12px; background:linear-gradient(180deg,#e9f5ff,#dff0ff); display:flex; align-items:center; justify-content:center; box-shadow:0 8px 30px rgba(10,40,80,0.06); position:relative; margin:auto; }
-.locked-box .lock { font-size:28px; color:#1A73E8; }
-
-/* Unlock animation */
+/* locked box */
+.locked-box { width:140px; height:120px; border-radius:12px; background:linear-gradient(180deg,#e9f5ff,#dff0ff); display:flex; align-items:center; justify-content:center; box-shadow:0 8px 30px rgba(10,40,80,0.06); margin:auto; }
 .unlock-anim { animation: unlockGlow 1.1s ease-out forwards; }
 @keyframes unlockGlow { 0%{transform:scale(0.96); box-shadow:0 6px 16px rgba(0,0,0,0.06);} 50%{transform:scale(1.06); box-shadow:0 20px 60px rgba(255,220,80,0.45);} 100%{transform:scale(1); box-shadow:0 8px 30px rgba(0,0,0,0.06);} }
 
@@ -146,29 +163,36 @@ COMMON_CSS = """
 .medal.silver { background: linear-gradient(180deg,#e8e8e8,#bdbdbd); color:#333; }
 .medal.gold { background: linear-gradient(180deg,#ffe75c,#f0b500); color:#3a2e00; }
 
-/* rotating shine & pop */
+/* shining rotation + pop animation */
 .shine { position:absolute; width:140px; height:140px; left:50%; top:50%; transform:translate(-50%,-50%) rotate(0deg); border-radius:50%; opacity:0; mix-blend-mode:screen; pointer-events:none; }
 .shine.rotate { animation: rotateShine 2.6s linear infinite; opacity:1; }
 @keyframes rotateShine { 0%{transform:translate(-50%,-50%) rotate(0deg);} 100%{transform:translate(-50%,-50%) rotate(360deg);} }
 @keyframes popFlash { 0%{transform:scale(0.9); filter:brightness(0.9);} 35%{transform:scale(1.35); filter:brightness(1.6);} 70%{transform:scale(1.08);} 100%{transform:scale(1);} }
 .flash { animation: popFlash 1.2s cubic-bezier(.2,.9,.2,1) forwards; z-index:3; }
 
-/* responsive */
+/* small responsive tweaks */
 @media(max-width:720px) {
-  .mascot-svg{ width:84px; height:84px; }
-  .mascot-small{ width:56px; height:56px; }
-  .medal{ width:72px; height:72px; font-size:26px; }
+  .mascot-svg { width:84px; height:84px; }
+  .mascot-small { width:56px; height:56px; }
+  .medal { width:72px; height:72px; font-size:26px; }
 }
 </style>
 """
 
-# Simple inline SVG mascots (programmatic, stylized)
+# ---------------------------
+# Simple SVG mascots (inline)
+# ---------------------------
 def svg_login_mascot():
     return """
     <svg class="mascot-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-      <defs><linearGradient id="lg1" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#7fe7ff"/><stop offset="80%" stop-color="#2fb8ff"/></linearGradient></defs>
+      <defs>
+        <linearGradient id="lg1" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="#7fe7ff"/>
+          <stop offset="90%" stop-color="#2fb8ff"/>
+        </linearGradient>
+      </defs>
       <path d="M100 10 C120 12,150 40,150 85 C150 130,120 160,100 165 C80 160,50 130,50 85 C50 40,80 12,100 10 Z" fill="url(#lg1)" stroke="#12304a" stroke-width="3"/>
-      <circle cx="75" cy="85" r="6" fill="#fff" opacity="0.9"/><circle cx="125" cy="85" r="6" fill="#fff" opacity="0.9"/>
+      <circle cx="75" cy="85" r="6" fill="#fff" opacity="0.95"/><circle cx="125" cy="85" r="6" fill="#fff" opacity="0.95"/>
       <path d="M85 118 Q100 132 115 118" stroke="#3a1f2a" stroke-width="3" fill="none" stroke-linecap="round"/>
     </svg>
     """
@@ -205,28 +229,31 @@ def svg_professor_mascot():
     </svg>
     """
 
-# ---------------- LOGIN PAGE ----------------
+# ---------------------------
+# Pages
+# ---------------------------
+
+# LOGIN PAGE
 if st.session_state.page == "login":
     st.markdown(COMMON_CSS, unsafe_allow_html=True)
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
-    st.markdown("<h4 style='text-align:center; color:#333; margin-top:-12px;'>Login or Sign Up to Continue</h4>", unsafe_allow_html=True)
+    st.markdown("<h1 class='centered' style='color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
+    st.markdown("<h4 class='centered' style='color:#333; margin-top:-10px;'>Login or Sign Up to Continue</h4>", unsafe_allow_html=True)
 
-    left, right = st.columns([1,1])
-    with left:
+    col1, col2 = st.columns([1,1])
+    with col1:
         login_msg = "💧 Please enter your username and password. If not, create a new account and sign in again!"
-        html = f"""
+        masc_html = f"""
         <div style="display:flex; gap:12px; align-items:center;">
-            <div style="animation:floaty 3.6s ease-in-out infinite;">{svg_login_mascot()}</div>
-            <div class="speech-cloud" style="animation:floaty-small 3s ease-in-out infinite;">
-                <div class="speech-bubble">{login_msg}</div>
-            </div>
+          <div style="animation:floaty 3.6s ease-in-out infinite;">{svg_login_mascot()}</div>
+          <div class="speech-cloud" style="animation:floaty-small 3s ease-in-out infinite;">
+            <div class="speech-bubble">{login_msg}</div>
+          </div>
         </div>
-        <div style="position:relative; width:120px; height:20px;">
-          <div class="sparkle" style="position:absolute; left:10px; top:2px;"></div>
-          <div class="sparkle" style="position:absolute; left:80px; top:4px;"></div>
+        <div style="position:relative; width:120px; height:22px;">
+          <div class="sparkle" style="position:absolute; left:12px; top:2px;"></div>
+          <div class="sparkle" style="position:absolute; left:78px; top:4px;"></div>
         </div>
         <script>
-        // random sparkle loop
         (function(){
             var nodes = document.querySelectorAll('.sparkle');
             function flick() {
@@ -240,60 +267,63 @@ if st.session_state.page == "login":
         })();
         </script>
         """
-        st.markdown(html, unsafe_allow_html=True)
+        st.markdown(masc_html, unsafe_allow_html=True)
 
-    with right:
+    with col2:
         option = st.radio("Choose Option", ["Login", "Sign Up"])
-        u = st.text_input("Enter Username", key="login_user")
-        p = st.text_input("Enter Password", type="password", key="login_pass")
+        username = st.text_input("Enter Username", key="username_input")
+        password = st.text_input("Enter Password", type="password", key="password_input")
         if st.button("Submit"):
             if option == "Sign Up":
-                if u in users:
+                if username in users:
                     st.error("❌ Username already exists.")
-                elif u == "" or p == "":
+                elif username == "" or password == "":
                     st.error("❌ Username and password cannot be empty.")
                 else:
-                    users[u] = p
+                    users[username] = password
                     save_users(users)
                     # default user data
-                    user_data[u] = {
+                    user_data[username] = {
                         "profile": {},
                         "ai_water_goal": 2.5,
-                        "water_profile": {"daily_goal": 2.5, "frequency": "30 minutes"},
+                        "water_profile": {"daily_goal": 2.5, "frequency":"30 minutes"},
                         "streak": {"completed_days": [], "current_streak": 0},
                         "today_progress": {"date": today_iso(), "liters": 0.0},
                         "unlocked_medals": {"bronze": False, "silver": False, "gold": False},
                         "seen_unlocks": {"bronze": False, "silver": False, "gold": False},
-                        "seen_funfact_dates": [],
+                        "seen_funfact_dates": []
                     }
                     save_user_data(user_data)
                     st.success("✅ Account created successfully! Please login.")
             else:
-                if u in users and users[u] == p:
+                if username in users and users[username] == password:
                     st.session_state.logged_in = True
-                    st.session_state.username = u
+                    st.session_state.username = username
                     # ensure defaults
-                    user_data.setdefault(u, {})
-                    user_data[u].setdefault("profile", {})
-                    user_data[u].setdefault("ai_water_goal", 2.5)
-                    user_data[u].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
-                    user_data[u].setdefault("streak", {"completed_days": [], "current_streak": 0})
-                    user_data[u].setdefault("today_progress", {"date": today_iso(), "liters": 0.0})
-                    user_data[u].setdefault("unlocked_medals", {"bronze": False, "silver": False, "gold": False})
-                    user_data[u].setdefault("seen_unlocks", {"bronze": False, "silver": False, "gold": False})
-                    user_data[u].setdefault("seen_funfact_dates", [])
+                    user_data.setdefault(username, {})
+                    user_data[username].setdefault("profile", {})
+                    user_data[username].setdefault("ai_water_goal", 2.5)
+                    user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency":"30 minutes"})
+                    user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
+                    user_data[username].setdefault("today_progress", {"date": today_iso(), "liters": 0.0})
+                    user_data[username].setdefault("unlocked_medals", {"bronze": False, "silver": False, "gold": False})
+                    user_data[username].setdefault("seen_unlocks", {"bronze": False, "silver": False, "gold": False})
+                    user_data[username].setdefault("seen_funfact_dates", [])
                     save_user_data(user_data)
-                    if user_data[u]["profile"]:
-                        go_to_page("home")
+                    if user_data[username]["profile"]:
+                        st.session_state.page = "home"
+                        st.experimental_rerun()
                     else:
-                        go_to_page("settings")
+                        st.session_state.page = "settings"
+                        st.experimental_rerun()
                 else:
                     st.error("❌ Invalid username or password.")
 
-# ---------------- SETTINGS PAGE ----------------
+# SETTINGS PAGE
 elif st.session_state.page == "settings":
     if not st.session_state.logged_in:
-        go_to_page("login")
+        st.session_state.page = "login"
+        st.experimental_rerun()
     username = st.session_state.username
     saved = user_data.get(username, {}).get("profile", {})
 
@@ -324,23 +354,18 @@ elif st.session_state.page == "settings":
     st.write(f"**Your BMI is:** {bmi}")
 
     health_condition = st.radio("Health condition", ["Excellent", "Fair", "Poor"], horizontal=True, index=["Excellent","Fair","Poor"].index(saved.get("Health Condition","Excellent")))
-    health_problems = st.text_area("Health problems", value=saved.get("Health Problems", ""))
+    health_problems = st.text_area("Health problems", value=saved.get("Health Problems",""))
 
     st.write("---")
     old_profile = user_data.get(username, {}).get("profile", {})
-    new_profile = {
-        "Name": name, "Age": age, "Country": country, "Language": language,
-        "Height": f"{height} {height_unit}", "Weight": f"{weight} {weight_unit}",
-        "BMI": bmi, "Health Condition": health_condition, "Health Problems": health_problems
-    }
+    new_profile = {"Name": name, "Age": age, "Country": country, "Language": language, "Height": f"{height} {height_unit}", "Weight": f"{weight} {weight_unit}", "BMI": bmi, "Health Condition": health_condition, "Health Problems": health_problems}
 
     if st.button("Save & Continue ➡️"):
         recalc = new_profile != old_profile
         if recalc:
             with st.spinner("🤖 Water Buddy is calculating your ideal water intake..."):
                 prompt = f"""
-                You are Water Buddy. Based on the following user info, suggest a daily water intake in liters.
-                Return only a numeric value, e.g. 2.5
+                You are Water Buddy. Based on user info, suggest daily water intake in liters as a single numeric value.
                 Age: {age}
                 Height: {height} {height_unit}
                 Weight: {weight} {weight_unit}
@@ -350,35 +375,36 @@ elif st.session_state.page == "settings":
                 """
                 try:
                     if model:
-                        resp = model.generate_content(prompt)
-                        txt = resp.text.strip()
-                        m = re.search(r"(\d+(\.\d+)?)", txt)
+                        r = model.generate_content(prompt)
+                        txt = r.text.strip()
+                        m = re.search(r"(\\d+(?:\\.\\d+)?)", txt)
                         if m:
                             suggested = float(m.group(1))
                         else:
                             raise ValueError("no numeric")
                     else:
                         raise RuntimeError("model not configured")
-                except Exception as e:
-                    st.warning(f"⚠️ Water Buddy suggestion failed, using default 2.5 L ({e})")
+                except Exception:
+                    st.warning("⚠️ Water Buddy suggestion failed, using default 2.5 L")
                     suggested = 2.5
         else:
             suggested = user_data.get(username, {}).get("ai_water_goal", 2.5)
 
         user_data[username] = user_data.get(username, {})
         user_data[username]["profile"] = new_profile
-        user_data[username]["ai_water_goal"] = round(suggested,2)
+        user_data[username]["ai_water_goal"] = round(suggested, 2)
         user_data[username].setdefault("water_profile", {"daily_goal": suggested, "frequency":"30 minutes"})
         user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
         user_data[username].setdefault("today_progress", {"date": today_iso(), "liters": 0.0})
         save_user_data(user_data)
         st.success(f"✅ Profile saved! Water Buddy suggests {suggested:.2f} L/day 💧")
-        go_to_page("water_profile")
+        st.experimental_rerun()
 
-# ---------------- WATER PROFILE ----------------
+# WATER PROFILE
 elif st.session_state.page == "water_profile":
     if not st.session_state.logged_in:
-        go_to_page("login")
+        st.session_state.page = "login"
+        st.experimental_rerun()
     username = st.session_state.username
     saved = user_data.get(username, {}).get("water_profile", {})
     ai_goal = user_data.get(username, {}).get("ai_water_goal", 2.5)
@@ -394,43 +420,43 @@ elif st.session_state.page == "water_profile":
         user_data[username]["water_profile"] = {"daily_goal": daily_goal, "frequency": freq}
         save_user_data(user_data)
         st.success("✅ Saved!")
-        go_to_page("home")
+        st.experimental_rerun()
 
-# ---------------- HOME PAGE ----------------
+# HOME PAGE
 elif st.session_state.page == "home":
     if not st.session_state.logged_in:
-        go_to_page("login")
+        st.session_state.page = "login"
+        st.experimental_rerun()
     username = st.session_state.username
 
-    # ensure default structures
+    # ensure structures
     user_data.setdefault(username, {})
-    user_data[username].setdefault("water_profile", {"daily_goal": user_data.get(username, {}).get("ai_water_goal",2.5), "frequency": "30 minutes"})
+    user_data[username].setdefault("water_profile", {"daily_goal": user_data.get(username, {}).get("ai_water_goal",2.5), "frequency":"30 minutes"})
     user_data[username].setdefault("today_progress", {"date": today_iso(), "liters": 0.0})
     user_data[username].setdefault("unlocked_medals", {"bronze": False, "silver": False, "gold": False})
     user_data[username].setdefault("seen_unlocks", {"bronze": False, "silver": False, "gold": False})
     user_data[username].setdefault("seen_funfact_dates", [])
 
-    # reset today's progress automatically when day changes
+    # reset daily progress automatically
     if user_data[username]["today_progress"].get("date") != today_iso():
         user_data[username]["today_progress"] = {"date": today_iso(), "liters": 0.0}
         save_user_data(user_data)
 
-    daily_goal = user_data[username]["water_profile"].get("daily_goal",2.5)
-    liters = user_data[username]["today_progress"].get("liters",0.0)
-    fill_pct = min(liters/daily_goal, 1.0) if daily_goal>0 else 0.0
+    daily_goal = user_data[username]["water_profile"].get("daily_goal", 2.5)
+    liters = user_data[username]["today_progress"].get("liters", 0.0)
+    fill_percent = min(liters / daily_goal, 1.0) if daily_goal > 0 else 0.0
 
     st.markdown(COMMON_CSS, unsafe_allow_html=True)
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
 
-    # bottle + mascots layout
-    col_left, col_right = st.columns([1,1])
-    with col_left:
-        # bottle visualization (background fill)
-        bottle = f"""
+    # layout: bottle left, mascots & box right
+    colL, colR = st.columns([1,1])
+    with colL:
+        bottle_html = f"""
         <div style="text-align:center;">
-          <div style="width:160px; height:380px; border:3px solid #1A73E8; border-radius:20px; margin:auto; overflow:hidden;
-                       background: linear-gradient(to top, #1A73E8 {fill_pct*100}%, #E9F6FF {fill_pct*100}%);
-                       transition: background 650ms ease;">
+          <div style="width:150px; height:360px; border:3px solid #1A73E8; border-radius:20px; margin:auto; overflow:hidden;
+                      background: linear-gradient(to top, #1A73E8 {fill_percent*100}%, #E9F6FF {fill_percent*100}%);
+                      transition: background 600ms ease;">
             <div style="position:relative; bottom:12px; width:100%; text-align:center; color:#fff; font-weight:700; font-size:16px;">
                {liters:.2f} L / {daily_goal} L
             </div>
@@ -439,36 +465,33 @@ elif st.session_state.page == "home":
           <div class="pulse-hint">⚠️ Use a calibrated water bottle for accurate tracking.</div>
         </div>
         """
-        st.markdown(bottle, unsafe_allow_html=True)
+        st.markdown(bottle_html, unsafe_allow_html=True)
 
         st.write("---")
-        # add water form
         with st.form("add_water", clear_on_submit=True):
-            w_in = st.text_input("Enter water amount (in ml):", key="home_add_ml")
+            water_input = st.text_input("Enter water amount (in ml):", key="home_ml")
             submitted = st.form_submit_button("➕ Add Water")
             if submitted:
-                v = re.sub("[^0-9.]", "", w_in).strip()
-                if v:
+                val = re.sub("[^0-9.]", "", water_input).strip()
+                if val:
                     try:
-                        ml = float(v)
-                        add_l = ml/1000.0
-                        # ensure today's progress date correct
+                        ml = float(val)
+                        liters_add = ml / 1000.0
                         if user_data[username]["today_progress"].get("date") != today_iso():
                             user_data[username]["today_progress"] = {"date": today_iso(), "liters": 0.0}
-                        user_data[username]["today_progress"]["liters"] += add_l
+                        user_data[username]["today_progress"]["liters"] += liters_add
                         save_user_data(user_data)
                         st.success(f"✅ Added {int(ml)} ml")
-                        # check goal & update streak if newly met
-                        tprog = user_data[username]["today_progress"]["liters"]
-                        if tprog >= daily_goal:
-                            streak = user_data[username].setdefault("streak", {"completed_days":[], "current_streak":0})
+                        # if goal just met, update streak and medals
+                        t_lit = user_data[username]["today_progress"]["liters"]
+                        if t_lit >= daily_goal:
+                            streak = user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
                             if today_iso() not in streak["completed_days"]:
                                 streak["completed_days"].append(today_iso())
                                 streak["completed_days"] = sorted(list(set(streak["completed_days"])))
-                                # recompute current streak
+                                # recalc streak
                                 cd = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in streak["completed_days"]])
-                                cur = 0
-                                cursor = date.today()
+                                cur = 0; cursor = date.today()
                                 while True:
                                     if cursor in cd:
                                         cur += 1
@@ -477,8 +500,8 @@ elif st.session_state.page == "home":
                                         break
                                 streak["current_streak"] = cur
                                 user_data[username]["streak"] = streak
-                                # update unlocked medals
-                                um = user_data[username].setdefault("unlocked_medals", {"bronze":False,"silver":False,"gold":False})
+                                # unlock medals persistently
+                                um = user_data[username].setdefault("unlocked_medals", {"bronze": False, "silver": False, "gold": False})
                                 if cur >= 7: um["bronze"] = True
                                 if cur >= 18: um["silver"] = True
                                 if cur >= 25: um["gold"] = True
@@ -486,42 +509,39 @@ elif st.session_state.page == "home":
                                 save_user_data(user_data)
                         st.experimental_rerun()
                     except Exception:
-                        st.error("Enter a valid number like 700 or 700ml")
+                        st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
                 else:
-                    st.error("Enter a valid number like 700 or 700ml")
+                    st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
 
-    with col_right:
-        # Home mascot + greeting (Gemini generated once per day)
-        # get / store greeting per day
+    with colR:
+        # Home mascot + daily greeting (Gemini)
         if user_data[username].get("last_greeting_date") != today_iso():
-            prompt = f"Write a short friendly hydration greeting for a user named {username}. Keep it to one sentence and start with an emoji."
+            prompt = f"Write a short friendly hydration greeting for a user named {username}. One sentence starting with an emoji."
             greeting = safe_genie(prompt, fallback=f"🌞 Hello {username}! Stay hydrated today 💧")
             user_data[username]["last_greeting_date"] = today_iso()
             user_data[username]["greeting_text"] = greeting
             save_user_data(user_data)
         greeting_text = user_data[username].get("greeting_text", f"🌞 Hello {username}! Stay hydrated 💧")
 
-        # show mascot + greeting bubble
-        html = f"""
+        greeting_html = f"""
         <div style="display:flex; gap:10px; align-items:center;">
-           <div style="animation: floaty 3.2s ease-in-out infinite;">{svg_home_mascot()}</div>
-           <div class="speech-cloud" style="animation: floaty-small 3.2s ease-in-out infinite;">
-             <div class="speech-bubble">{greeting_text}</div>
-           </div>
+          <div style="animation:floaty 3.2s ease-in-out infinite;">{svg_home_mascot()}</div>
+          <div class="speech-cloud" style="animation:floaty-small 3.2s ease-in-out infinite;">
+            <div class="speech-bubble">{greeting_text}</div>
+          </div>
         </div>
         """
-        st.markdown(html, unsafe_allow_html=True)
+        st.markdown(greeting_html, unsafe_allow_html=True)
 
-        # Fun-fact locked box logic
-        box_locked = user_data[username]["today_progress"].get("liters",0.0) < daily_goal
+        # Locked box + professor fun fact logic
+        box_locked = user_data[username]["today_progress"].get("liters", 0.0) < daily_goal
         # If unlocked and not yet shown today, fetch funfact
         if not box_locked and today_iso() not in user_data[username].get("seen_funfact_dates", []):
             prompt = "Give one short, interesting fun fact about water (one or two sentences)."
-            fact = safe_genie(prompt, fallback="💡 Fun fact: About 60% of the human adult body is water.")
+            fact = safe_genie(prompt, fallback="💡 Fun fact: About 60% of an adult human body is water.")
             user_data[username].setdefault("funfacts", {})[today_iso()] = fact
             user_data[username].setdefault("seen_funfact_dates", []).append(today_iso())
             save_user_data(user_data)
-        # display locked or unlocked
         if box_locked:
             box_html = """
             <div style="text-align:center; margin-top:18px;">
@@ -550,29 +570,31 @@ elif st.session_state.page == "home":
             st.markdown(box_html, unsafe_allow_html=True)
 
     st.write("---")
-    # quick summary
     st.markdown(f"### Today's intake: **{user_data[username]['today_progress'].get('liters',0.0):.2f} L**")
     st.write("---")
 
-    # nav buttons
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        if st.button("👤 Personal Settings"): go_to_page("settings")
-    with c2:
-        if st.button("🚰 Water Intake"): go_to_page("water_profile")
-    with c3:
-        if st.button("📈 Report"): go_to_page("report")
-    with c4:
-        if st.button("🔥 Daily Streak"): go_to_page("daily_streak")
-    with c5:
+    # nav
+    a,b,c,d,e = st.columns(5)
+    with a:
+        if st.button("👤 Personal Settings"): st.session_state.page="settings"; st.experimental_rerun()
+    with b:
+        if st.button("🚰 Water Intake"): st.session_state.page="water_profile"; st.experimental_rerun()
+    with c:
+        if st.button("📈 Report"): st.session_state.page="report"; st.experimental_rerun()
+    with d:
+        if st.button("🔥 Daily Streak"): st.session_state.page="daily_streak"; st.experimental_rerun()
+    with e:
         if st.button("🚪 Logout"):
             st.session_state.logged_in = False
-            go_to_page("login")
+            st.session_state.username = ""
+            st.session_state.page = "login"
+            st.experimental_rerun()
 
-# ---------------- REPORT PAGE ----------------
+# REPORT PAGE
 elif st.session_state.page == "report":
     if not st.session_state.logged_in:
-        go_to_page("login")
+        st.session_state.page = "login"
+        st.experimental_rerun()
     username = st.session_state.username
     user_data.setdefault(username, {})
     user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
@@ -583,24 +605,29 @@ elif st.session_state.page == "report":
     completed_dates = []
     for s in completed_iso:
         try:
-            d = datetime.strptime(s, "%Y-%m-%d").date()
-            completed_dates.append(d)
+            completed_dates.append(datetime.strptime(s, "%Y-%m-%d").date())
         except Exception:
             continue
+
     today = date.today()
     daily_goal = user_data[username]["water_profile"].get("daily_goal", user_data[username].get("ai_water_goal",2.5))
-    # today's pct
+
     tprog = user_data[username].get("today_progress", {})
-    liters_today = tprog.get("liters", 0.0) if tprog.get("date")==today_iso() else 0.0
+    liters_today = tprog.get("liters", 0.0) if tprog.get("date") == today_iso() else 0.0
     today_pct = min(round(liters_today/daily_goal*100), 100) if liters_today else (100 if today in completed_dates else 0)
 
+    st.markdown(COMMON_CSS, unsafe_allow_html=True)
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>📊 Hydration Report</h1>", unsafe_allow_html=True)
     st.write("---")
 
     st.markdown("### Today's Progress")
-    fig_daily = go.Figure(go.Indicator(mode="gauge+number", value=today_pct,
-                                      title={'text': "Today's Hydration"},
-                                      gauge={'axis':{'range':[0,100]}, 'bar':{'color':"#1A73E8"}}))
+    fig_daily = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=today_pct,
+        domain={'x':[0,1],'y':[0,1]},
+        title={'text':"Today's Hydration"},
+        gauge={'axis':{'range':[0,100]}, 'bar':{'color':"#1A73E8"}}
+    ))
     fig_daily.update_layout(height=300, margin=dict(l=20,r=20,t=30,b=20), paper_bgcolor="rgba(0,0,0,0)")
     st.plotly_chart(fig_daily, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
@@ -618,6 +645,7 @@ elif st.session_state.page == "report":
     monday = today - timedelta(days=today.weekday())
     week_days = [monday + timedelta(days=i) for i in range(7)]
     labels = [d.strftime("%a\n%d %b") for d in week_days]
+
     pct_list = []
     status_list = []
     for d in week_days:
@@ -636,6 +664,7 @@ elif st.session_state.page == "report":
                 else:
                     pct = 0; status = "missed"
         pct_list.append(pct); status_list.append(status)
+
     def week_color_for_status(s):
         if s=="achieved": return "#1A73E8"
         if s=="almost": return "#FFD23F"
@@ -644,31 +673,35 @@ elif st.session_state.page == "report":
         return "#FF6B6B"
     colors = [week_color_for_status(s) for s in status_list]
     df_week = pd.DataFrame({"label": labels, "pct": pct_list, "status": status_list})
+
     fig_week = go.Figure()
-    fig_week.add_trace(go.Bar(x=df_week["label"], y=df_week["pct"], marker_color=colors, text=[f"{v}%" if v>0 else "" for v in df_week["pct"]], textposition='outside'))
+    fig_week.add_trace(go.Bar(x=df_week["label"], y=df_week["pct"], marker_color=colors,
+                              text=[f"{v}%" if v>0 else "" for v in df_week["pct"]],
+                              textposition='outside'))
     fig_week.update_layout(yaxis={'title':'Completion %','range':[0,100]}, showlegend=False, margin=dict(l=20,r=20,t=20,b=40), height=340, paper_bgcolor="rgba(0,0,0,0)")
     st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': True})
 
-    # permanent note under the graph
+    # permanent note below graph
     st.markdown("<div style='margin-top:8px; color:#666; font-style:italic;'>💡 Double-click on the graph to zoom out.</div>", unsafe_allow_html=True)
 
     st.write("---")
     c1,c2,c3,c4,c5 = st.columns(5)
     with c1:
-        if st.button("🏠 Home"): go_to_page("home")
+        if st.button("🏠 Home"): st.session_state.page="home"; st.experimental_rerun()
     with c2:
-        if st.button("👤 Personal Settings"): go_to_page("settings")
+        if st.button("👤 Personal Settings"): st.session_state.page="settings"; st.experimental_rerun()
     with c3:
-        if st.button("🚰 Water Intake"): go_to_page("water_profile")
+        if st.button("🚰 Water Intake"): st.session_state.page="water_profile"; st.experimental_rerun()
     with c4:
         st.info("You're on Report")
     with c5:
-        if st.button("🔥 Daily Streak"): go_to_page("daily_streak")
+        if st.button("🔥 Daily Streak"): st.session_state.page="daily_streak"; st.experimental_rerun()
 
-# ---------------- DAILY STREAK PAGE ----------------
+# DAILY STREAK PAGE
 elif st.session_state.page == "daily_streak":
     if not st.session_state.logged_in:
-        go_to_page("login")
+        st.session_state.page = "login"
+        st.experimental_rerun()
     username = st.session_state.username
     user_data.setdefault(username, {})
     user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
@@ -679,21 +712,20 @@ elif st.session_state.page == "daily_streak":
     completed_dates = []
     for s in completed_iso:
         try:
-            d = datetime.strptime(s, "%Y-%m-%d").date()
-            completed_dates.append(d)
+            completed_dates.append(datetime.strptime(s, "%Y-%m-%d").date())
         except Exception:
             continue
 
     st.markdown(COMMON_CSS, unsafe_allow_html=True)
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>🔥 Daily Streak</h1>", unsafe_allow_html=True)
 
-    # medals thresholds
+    # thresholds
     bronze_th, silver_th, gold_th = 7, 18, 25
     bronze_unlocked = current_streak >= bronze_th
     silver_unlocked = current_streak >= silver_th
     gold_unlocked = current_streak >= gold_th
 
-    # play-one-time flash logic based on seen_unlocks stored per user
+    # flash only once per medal unlock (persisted)
     seen = user_data[username].setdefault("seen_unlocks", {"bronze":False,"silver":False,"gold":False})
     flash_b = flash_s = flash_g = False
     if bronze_unlocked and not seen.get("bronze"):
@@ -729,9 +761,9 @@ elif st.session_state.page == "daily_streak":
     """
     st.markdown(medals_html, unsafe_allow_html=True)
 
-    # motivational mascot and message (Gemini)
+    # motivational mascot + message (Gemini)
     if user_data[username].get("last_motiv_date") != today_iso():
-        prompt = "Write a short, energetic motivational one-sentence message about staying consistent with hydration."
+        prompt = "Write a short, punchy motivational message (one sentence) about staying consistent with hydration."
         motiv = safe_genie(prompt, fallback="Keep going — every sip brings you closer to your goal!")
         user_data[username]["last_motiv_date"] = today_iso()
         user_data[username]["last_motiv_text"] = motiv
@@ -746,7 +778,7 @@ elif st.session_state.page == "daily_streak":
     """
     st.markdown(masc_html, unsafe_allow_html=True)
 
-    # JS to run sparkles + WebAudio ta-da sound for unlocks (synth — no audio file)
+    # JS: generate sparkles & play WebAudio "ta-da" synth (no files)
     st.markdown(f"""
     <script>
     (function(){{
@@ -754,7 +786,6 @@ elif st.session_state.page == "daily_streak":
         try {{
           var ctx = new (window.AudioContext || window.webkitAudioContext)();
           var now = ctx.currentTime;
-          // strong ta-da synth: two tones
           var o1 = ctx.createOscillator(); var g1 = ctx.createGain();
           o1.type='sawtooth'; o1.frequency.setValueAtTime(880, now);
           g1.gain.setValueAtTime(0, now); g1.gain.linearRampToValueAtTime(0.22, now+0.01); g1.gain.exponentialRampToValueAtTime(0.0001, now+0.55);
@@ -770,7 +801,7 @@ elif st.session_state.page == "daily_streak":
         if(!cont) return;
         cont.innerHTML = '';
         var cnt = 12;
-        for(var i=0;i<cnt;i++){{
+        for(var i=0;i<cnt;i++) {{
           var s = document.createElement('div');
           s.style.position='absolute';
           s.style.width = (5+Math.random()*8)+'px';
@@ -785,15 +816,11 @@ elif st.session_state.page == "daily_streak":
           (function(el){ setTimeout(function(){ el.style.transition='transform 900ms ease-out, opacity 900ms ease-out'; var ang=Math.random()*Math.PI*2; var dist=30+Math.random()*60; el.style.transform='translate('+ (Math.cos(ang)*dist) +'px,'+ (Math.sin(ang)*dist) +'px) scale(1.1)'; el.style.opacity='1'; setTimeout(function(){ el.style.opacity='0'; },750); }, Math.random()*80); })(s);
         }}
       }}
-
       try {{
-        var b = document.getElementById('medal_bronze');
-        if(b && b.dataset.flash === 'true'){{ setTimeout(function(){ burstSparks('spark_bronze'); playTaDa(); }, 220); }}
-        var s = document.getElementById('medal_silver');
-        if(s && s.dataset.flash === 'true'){{ setTimeout(function(){ burstSparks('spark_silver'); playTaDa(); }, 240); }}
-        var g = document.getElementById('medal_gold');
-        if(g && g.dataset.flash === 'true'){{ setTimeout(function(){ burstSparks('spark_gold'); playTaDa(); }, 260); }}
-      }} catch(e){{ console.warn('medal script err', e); }}
+        var b = document.getElementById('medal_bronze'); if(b && b.dataset.flash==='true'){{ setTimeout(function(){ burstSparks('spark_bronze'); playTaDa(); },220); }}
+        var s = document.getElementById('medal_silver'); if(s && s.dataset.flash==='true'){{ setTimeout(function(){ burstSparks('spark_silver'); playTaDa(); },240); }}
+        var g = document.getElementById('medal_gold'); if(g && g.dataset.flash==='true'){{ setTimeout(function(){ burstSparks('spark_gold'); playTaDa(); },260); }}
+      }} catch(e) {{ console.warn('medal script err', e); }}
     }})();
     </script>
     """, unsafe_allow_html=True)
@@ -802,15 +829,15 @@ elif st.session_state.page == "daily_streak":
     st.write("---")
     c1,c2,c3,c4,c5 = st.columns(5)
     with c1:
-        if st.button("🏠 Home"): go_to_page("home")
+        if st.button("🏠 Home"): st.session_state.page="home"; st.experimental_rerun()
     with c2:
-        if st.button("👤 Personal Settings"): go_to_page("settings")
+        if st.button("👤 Personal Settings"): st.session_state.page="settings"; st.experimental_rerun()
     with c3:
-        if st.button("🚰 Water Intake"): go_to_page("water_profile")
+        if st.button("🚰 Water Intake"): st.session_state.page="water_profile"; st.experimental_rerun()
     with c4:
-        if st.button("📈 Report"): go_to_page("report")
+        if st.button("📈 Report"): st.session_state.page="report"; st.experimental_rerun()
     with c5:
         st.info("You're on Daily Streak")
 
-# ---------------- End ----------------
+# End of app
 
