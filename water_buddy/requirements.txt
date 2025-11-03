@@ -1,7 +1,10 @@
-streamlit
-google-generativeai
-python-dotenv
-pycountry
-plotly
+streamlit==1.38.0
 pandas
-
+datetime
+jsonpickle
+matplotlib
+plotly
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+requests
