@@ -613,8 +613,7 @@ elif st.session_state.page == "report":
     almost_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "almost")
     missed_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "missed")
 
-    st.markdown(f"✅ Achieved: **{achieved_days}** • 🟨 Almost: **{almost_days}** • 📉 Missed: **{missed_days}**", unsafe_allow_html=True)
-    
+   
     st.write("---")
 
     # -------------------------------
@@ -643,9 +642,6 @@ elif st.session_state.page == "report":
             best_streak = current
     else:
         best_streak = 0
-
-    st.write(f"🏆 Best streak (ever): **{best_streak} days**")
-    st.write(f"💧 This month goals met: **{total_met} / {total_days}**")
 
     st.write("---")
 
@@ -832,3 +828,4 @@ elif st.session_state.page == "daily_streak":
 # -------------------------------
 # End of App
 # -------------------------------
+
