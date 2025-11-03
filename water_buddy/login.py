@@ -10,7 +10,6 @@ import google.generativeai as genai
 import calendar
 import plotly.express as px
 import plotly.graph_objects as go
-from urllib.parse import urlencode, urlparse, parse_qs
 
 # -------------------------------
 # ✅ Load API key from .env or Streamlit Secrets
@@ -25,9 +24,12 @@ else:
 if not api_key:
     st.error("❌ Missing API key. Please add GOOGLE_API_KEY in your .env or Streamlit Secrets.")
 else:
-    genai.configure(api_key=api_key)
-
-model = genai.GenerativeModel("models/gemini-2.5-flash")
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("models/gemini-2.5-flash")
+    except Exception:
+        # If generative API not available, keep app working (chatbot will fallback)
+        model = None
 
 # -------------------------------
 # ✅ Streamlit Page Config
@@ -42,7 +44,10 @@ USER_DATA_FILE = "user_data.json"
 
 if os.path.exists(CREDENTIALS_FILE):
     with open(CREDENTIALS_FILE, "r") as f:
-        users = json.load(f)
+        try:
+            users = json.load(f)
+        except Exception:
+            users = {}
 else:
     users = {}
 
@@ -210,13 +215,16 @@ elif st.session_state.page == "settings":
                 Health problems: {health_problems if health_problems else 'None'}
                 """
                 try:
-                    response = model.generate_content(prompt)
-                    text_output = response.text.strip()
-                    match = re.search(r"(\d+(\.\d+)?)", text_output)
-                    if match:
-                        suggested_water_intake = float(match.group(1))
+                    if model:
+                        response = model.generate_content(prompt)
+                        text_output = response.text.strip()
+                        match = re.search(r"(\d+(\.\d+)?)", text_output)
+                        if match:
+                            suggested_water_intake = float(match.group(1))
+                        else:
+                            raise ValueError("No numeric value found in Water Buddy response.")
                     else:
-                        raise ValueError("No numeric value found in Water Buddy response.")
+                        raise RuntimeError("Model not configured")
                 except Exception as e:
                     st.warning(f"⚠️ Water Buddy suggestion failed, using default 2.5 L ({e})")
                     suggested_water_intake = 2.5
@@ -431,9 +439,12 @@ elif st.session_state.page == "home":
             if st.button("Send", key="send_btn"):
                 if user_msg.strip():
                     try:
-                        prompt = f"You are Water Buddy, a friendly AI hydration assistant. Respond conversationally.\nUser: {user_msg}"
-                        response = model.generate_content(prompt)
-                        reply = response.text.strip()
+                        if model:
+                            prompt = f"You are Water Buddy, a friendly AI hydration assistant. Respond conversationally.\nUser: {user_msg}"
+                            response = model.generate_content(prompt)
+                            reply = response.text.strip()
+                        else:
+                            reply = "⚠️ Chatbot not configured currently."
                     except Exception:
                         reply = "⚠️ Sorry, I’m having trouble connecting right now."
                     st.session_state.chat_history.append({"sender": "bot", "text": reply})
@@ -482,11 +493,10 @@ elif st.session_state.page == "report":
 
     st.markdown("### Today's Progress")
     fig_daily = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
+        mode="gauge+number",
         value=today_pct,
         domain={'x': [0, 1], 'y': [0, 1]},
         title={'text': "Today's Hydration", 'font': {'size': 18}},
-        delta={'reference': 100, 'relative': False, 'position': "top"},
         gauge={
             'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#1A73E8"},
             'bar': {'color': "#1A73E8"},
@@ -503,8 +513,8 @@ elif st.session_state.page == "report":
             }
         }
     ))
-    fig_daily.update_layout(height=320, margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig_daily, use_container_width=True)
+    fig_daily.update_layout(height=300, margin=dict(l=20, r=20, t=30, b=20), paper_bgcolor="rgba(0,0,0,0)")
+    st.plotly_chart(fig_daily, use_container_width=True, config={'displayModeBar': False})
 
     if today_pct >= 100:
         st.success("🏆 Goal achieved today! Fantastic work — keep the streak alive! 💧")
@@ -573,7 +583,7 @@ elif st.session_state.page == "report":
     ))
     fig_week.update_layout(yaxis={'title': 'Completion %', 'range': [0, 110]}, showlegend=False,
                            margin=dict(l=20, r=20, t=20, b=40), height=320, paper_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig_week, use_container_width=True)
+    st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False})
 
     achieved_days = sum(1 for s in status_list if s == "achieved")
     almost_days = sum(1 for s in status_list if s == "almost")
@@ -591,8 +601,7 @@ elif st.session_state.page == "report":
     days_in_month = calendar.monthrange(year, month)[1]
     month_dates = [date(year, month, d) for d in range(1, days_in_month + 1)]
 
-    # Build status & star HTML
-    # Use query param 'selected_day' to show slide card
+    # Query param reading
     query_params = st.experimental_get_query_params()
     selected_day_param = query_params.get("selected_day", [None])[0]  # expects 'YYYY-MM-DD' or None
 
@@ -602,56 +611,53 @@ elif st.session_state.page == "report":
     .star-grid {
       display: grid;
       grid-template-columns: repeat(6, 1fr);
-      gap: 18px;
+      gap: 14px;
       justify-items: center;
       align-items: center;
-      padding: 10px 5%;
+      padding: 6px 4%;
     }
     .star {
-      width:48px;
-      height:48px;
+      width:42px;
+      height:42px;
       display:flex;
       align-items:center;
       justify-content:center;
-      font-size:22px;
+      font-size:20px;
       border-radius:6px;
-      transition: transform .12s ease, box-shadow .12s ease, background-color .12s ease;
+      transition: transform .12s ease, box-shadow .12s ease, background-color .12s ease, filter .12s ease;
       cursor: pointer;
       user-select: none;
       text-decoration:none;
+      line-height:1;
     }
     .star:hover {
       transform: translateY(-6px) scale(1.06);
     }
     .star.dim {
-      background: rgba(255,255,255,0.06);
+      background: rgba(255,255,255,0.03);
       color: #bdbdbd;
       box-shadow: none;
+      filter: grayscale(10%);
     }
     .star.achieved {
-      background: linear-gradient(180deg, #FFD85C, #FFB400);
-      color: #fff;
-      box-shadow: 0 6px 18px rgba(255,176,0,0.45), 0 2px 6px rgba(0,0,0,0.25);
+      background: radial-gradient(circle at 30% 20%, #fff6c2, #ffd85c 40%, #ffb400 100%);
+      color: #4b2a00;
+      box-shadow: 0 8px 22px rgba(255,176,0,0.42), 0 2px 6px rgba(0,0,0,0.18);
+      transform: translateY(0);
     }
     .star.small {
-      width:44px;
-      height:44px;
+      width:38px;
+      height:38px;
       font-size:18px;
-    }
-    .star-label {
-      font-size:12px;
-      color:#cfcfcf;
-      margin-top:6px;
-      text-align:center;
     }
     /* Slide-in card */
     .slide-card {
       position: fixed;
       left: 50%;
       transform: translateX(-50%);
-      bottom: 20px;
-      width: 320px;
-      max-width: 90%;
+      bottom: 18px;
+      width: 340px;
+      max-width: 92%;
       background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,250,250,0.98));
       color:#111;
       border-radius:12px;
@@ -666,28 +672,33 @@ elif st.session_state.page == "report":
     }
     .slide-card h4 { margin:0 0 6px 0; font-size:16px; }
     .slide-card p { margin:0; font-size:14px; color:#333; }
-    .close-link { display:inline-block; margin-top:10px; color:#1A73E8; text-decoration:none; font-weight:600; }
-    /* small responsive */
+    .close-btn {
+      display:inline-block; margin-top:10px; color:#1A73E8; text-decoration:none; font-weight:600; cursor:pointer;
+    }
+    /* auto-hide on scroll helper (no visible effect) */
     @media(max-width:600px){
-      .star-grid { grid-template-columns: repeat(4, 1fr); gap:12px; }
-      .star { width:40px; height:40px; font-size:16px; }
+      .star-grid { grid-template-columns: repeat(4, 1fr); gap:10px; }
+      .star { width:36px; height:36px; font-size:16px; }
+      .slide-card { width:92%; bottom: 12px; }
     }
     </style>
     """
 
-    # Build HTML for stars
+    # Build HTML for stars (row-wise order naturally by grid)
     stars_html = "<div class='star-grid'>"
     for d in month_dates:
         day_num = d.day
         iso = d.strftime("%Y-%m-%d")
         achieved = d in completed_dates
         css_class = "achieved" if achieved else "dim"
-        # link to same page with selected_day param
+        # link to same page with selected_day param (simple query param)
+        # using full URL is fine since query param will reload and be read
         href = f"?selected_day={iso}"
-        # Use a star glyph ★ so it looks like a star; glow via CSS for achieved
+        # use star glyph ★ for star
         stars_html += f"<a class='star {css_class} small' href='{href}' title='Day {day_num}'>★</a>"
     stars_html += "</div>"
 
+    # render CSS + stars
     st.markdown(star_css + stars_html, unsafe_allow_html=True)
 
     # If a day is selected via query param, show slide card with details
@@ -700,19 +711,16 @@ elif st.session_state.page == "report":
             card_html = "<div class='slide-card'>"
             card_html += f"<h4>Day {sel_day_num} — {sel_date.strftime('%b %d, %Y')}</h4>"
             if achieved_flag:
-                card_html += "<p>🎉 Goal completed on this day! Great job.</p>"
+                card_html += "<p>🎉 Goal completed on this day! Great job — you earned a glowing star!</p>"
             else:
-                card_html += "<p>💧 Goal missed on this day. You can do it next time!</p>"
-            # close link (clears query params)
-            # build the base path without query
-            base_path = urlparse(st.experimental_get_query_params().get("__redirect__", [st.get_option("server.address")])[0])  # fallback - not used
-            # simpler: just link to current page path without params
-            card_html += f\"<a class='close-link' href='{st.request.path_url}'>Close</a>\"
+                card_html += "<p>💧 Goal missed on this day. Small steps tomorrow — you can do it!</p>"
+            # close button uses JS to remove query param without reload (history.replaceState)
+            card_html += "<div><span class='close-btn' onclick=\"history.replaceState(null, '', window.location.pathname);\">Close</span></div>"
             card_html += "</div>"
-            # JS to auto-hide on scroll (clears query params using history)
+
+            # JS: hide card on scroll (removes query param)
             js_hide_on_scroll = """
             <script>
-            // remove query param on scroll (hide slide)
             (function(){
               var hidden = false;
               window.addEventListener('scroll', function(){
