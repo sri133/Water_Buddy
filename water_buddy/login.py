@@ -4,10 +4,12 @@ import os
 import pycountry
 import re
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from dotenv import load_dotenv
 import google.generativeai as genai
 import calendar
+import plotly.express as px
+import plotly.graph_objects as go
 
 # -------------------------------
 # ✅ Load API key from .env or Streamlit Secrets
@@ -32,7 +34,7 @@ model = genai.GenerativeModel("models/gemini-2.5-flash")
 st.set_page_config(page_title="HP PARTNER", page_icon="💧", layout="centered")
 
 # -------------------------------
-# File setup
+# File setup (user_data.json auto-created)
 # -------------------------------
 CREDENTIALS_FILE = "users.json"
 USER_DATA_FILE = "user_data.json"
@@ -43,11 +45,17 @@ if os.path.exists(CREDENTIALS_FILE):
 else:
     users = {}
 
+# Ensure user_data file exists and has a dict
 if os.path.exists(USER_DATA_FILE):
     with open(USER_DATA_FILE, "r") as f:
-        user_data = json.load(f)
+        try:
+            user_data = json.load(f)
+        except Exception:
+            user_data = {}
 else:
     user_data = {}
+    with open(USER_DATA_FILE, "w") as f:
+        json.dump(user_data, f, indent=4)
 
 # -------------------------------
 # Streamlit session setup
@@ -102,6 +110,11 @@ if st.session_state.page == "login":
                 with open(CREDENTIALS_FILE, "w") as f:
                     json.dump(users, f)
                 user_data[username] = {}
+                # initialize structures
+                user_data[username]["profile"] = {}
+                user_data[username]["ai_water_goal"] = 2.5
+                user_data[username]["water_profile"] = {"daily_goal": 2.5, "frequency": "30 minutes"}
+                user_data[username]["streak"] = {"completed_days": [], "current_streak": 0}
                 save_user_data(user_data)
                 st.success("✅ Account created successfully! Please login.")
 
@@ -109,7 +122,7 @@ if st.session_state.page == "login":
             if username in users and users[username] == password:
                 st.session_state.logged_in = True
                 st.session_state.username = username
-                if username in user_data and "profile" in user_data[username]:
+                if username in user_data and "profile" in user_data[username] and user_data[username]["profile"]:
                     go_to_page("home")
                 else:
                     go_to_page("settings")
@@ -213,6 +226,9 @@ elif st.session_state.page == "settings":
         user_data[username] = user_data.get(username, {})
         user_data[username]["profile"] = new_profile_data
         user_data[username]["ai_water_goal"] = round(suggested_water_intake, 2)
+        # ensure water_profile and streak exist
+        user_data[username].setdefault("water_profile", {"daily_goal": suggested_water_intake, "frequency": "30 minutes"})
+        user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
         save_user_data(user_data)
 
         st.success(f"✅ Profile saved! Water Buddy suggests {suggested_water_intake:.2f} L/day 💧")
@@ -281,13 +297,18 @@ elif st.session_state.page == "home":
                 # ✅ Update daily streak data when user meets their goal
                 username = st.session_state.username
                 today_str = str(date.today())
-                user_streak = user_data.get(username, {}).get("streak", {"completed_days": [], "current_streak": 0})
-                daily_goal = user_data.get(username, {}).get("water_profile", {}).get("daily_goal", 2.5)
+
+                # ensure structures exist
+                user_data.setdefault(username, {})
+                user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
+                user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
+
+                user_streak = user_data[username]["streak"]
+                daily_goal = user_data[username]["water_profile"].get("daily_goal", 2.5)
 
                 # If daily goal reached, add today's date to completed_days and recompute streak
                 if st.session_state.total_intake >= daily_goal:
                     if today_str not in user_streak.get("completed_days", []):
-                        # append today's date as YYYY-MM-DD
                         user_streak.setdefault("completed_days", []).append(today_str)
                         # keep unique & sorted
                         user_streak["completed_days"] = sorted(list(set(user_streak["completed_days"])))
@@ -298,10 +319,7 @@ elif st.session_state.page == "home":
                     while True:
                         if day_cursor in completed_dates:
                             streak += 1
-                            day_cursor = day_cursor - pd.Timedelta(days=1)
-                            # use datetime.date arithmetic using timedelta from pandas or datetime
-                            # convert to datetime.date deltas:
-                            day_cursor = day_cursor
+                            day_cursor = day_cursor - timedelta(days=1)
                         else:
                             break
                     user_streak["current_streak"] = streak
@@ -341,7 +359,6 @@ elif st.session_state.page == "home":
 
     # -------------------------------
     # 🤖 Water Buddy Chatbot Popup (Fixed header + removed scrollbar)
-    # (unchanged from your original - kept as-is)
     # -------------------------------
     st.markdown("""
     <style>
@@ -424,17 +441,287 @@ elif st.session_state.page == "home":
             st.markdown("</div>", unsafe_allow_html=True)
 
 # -------------------------------
-# REPORT PAGE
+# REPORT PAGE (UPDATED VISUALS) - ONLY THIS PAGE CHANGED
 # -------------------------------
 elif st.session_state.page == "report":
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>📊 Weekly Report</h1>", unsafe_allow_html=True)
-    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    progress = [100, 100, 75, 100, 90, 60, 100]
-    avg = sum(progress) / len(progress)
-    df = pd.DataFrame({"Day": days, "Progress (%)": progress})
-    st.bar_chart(df.set_index("Day"))
-    st.write(f"### Weekly Avg: {avg:.0f}%")
-    st.write("Goals Met: 5/7 days | Streak: 3 days")
+    username = st.session_state.username
+    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>📊 Hydration Report</h1>", unsafe_allow_html=True)
+    st.write("---")
+
+    # Ensure user structures exist
+    user_data.setdefault(username, {})
+    user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
+    user_data[username].setdefault("water_profile", {"daily_goal": user_data.get(username, {}).get("ai_water_goal", 2.5), "frequency": "30 minutes"})
+    save_user_data(user_data)
+
+    # Helper: parse completed days to set and dates
+    completed_iso = user_data[username]["streak"].get("completed_days", [])
+    completed_dates = []
+    for s in completed_iso:
+        try:
+            d = datetime.strptime(s, "%Y-%m-%d").date()
+            completed_dates.append(d)
+        except Exception:
+            continue
+
+    today = date.today()
+    daily_goal = user_data[username]["water_profile"].get("daily_goal", user_data[username].get("ai_water_goal", 2.5))
+
+    # -------------------------------
+    # Section 1: DAILY (big circular gauge)
+    # -------------------------------
+    # Determine today's completion percent from today's total intake if available in session, else check logs:
+    # We only store today's intake in session_state (not persisted), so best effort:
+    today_str = str(today)
+    # If today's completed in completed_dates, consider 100%
+    if today in completed_dates:
+        today_pct = 100
+    else:
+        # If session knows total intake:
+        if st.session_state.total_intake:
+            today_pct = min(round(st.session_state.total_intake / daily_goal * 100), 100)
+        else:
+            # If no session total, but we might estimate 0 if not completed
+            today_pct = 0
+
+    st.markdown("### Today's Progress")
+    # Plotly Indicator gauge
+    fig_daily = go.Figure(go.Indicator(
+        mode="gauge+number+delta",
+        value=today_pct,
+        domain={'x': [0, 1], 'y': [0, 1]},
+        title={'text': "Today's Hydration", 'font': {'size': 18}},
+        delta={'reference': 100, 'relative': False, 'position': "top"},
+        gauge={
+            'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#1A73E8"},
+            'bar': {'color': "#1A73E8"},
+            'bgcolor': "white",
+            'steps': [
+                {'range': [0, 50], 'color': "#FFD9D9"},
+                {'range': [50, 75], 'color': "#FFF1B6"},
+                {'range': [75, 100], 'color': "#D7EEFF"}
+            ],
+            'threshold': {
+                'line': {'color': "#0B63C6", 'width': 6},
+                'thickness': 0.75,
+                'value': 100
+            }
+        }
+    ))
+    fig_daily.update_layout(height=320, margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor="rgba(0,0,0,0)")
+    st.plotly_chart(fig_daily, use_container_width=True)
+
+    # Motivational text
+    if today_pct >= 100:
+        st.success("🏆 Goal achieved today! Fantastic work — keep the streak alive! 💧")
+    elif today_pct >= 75:
+        st.info(f"💦 You're {today_pct}% there — a little more and you hit the goal!")
+    elif today_pct > 0:
+        st.info(f"🙂 You've completed {today_pct}% of your goal today — keep sipping!")
+    else:
+        st.info("🎯 Not started yet — let's drink some water and get moving!")
+
+    st.write("---")
+
+    # -------------------------------
+    # Section 2: WEEKLY (last 7 days bar chart)
+    # -------------------------------
+    st.markdown("### Weekly Progress (last 7 days)")
+
+    # Build last 7 days including today
+    last7 = [today - timedelta(days=i) for i in range(6, -1, -1)]
+    dates_str = [d.strftime("%Y-%m-%d") for d in last7]
+    labels = [d.strftime("%a\n%d %b") for d in last7]
+
+    # Compute percent per day: 100 if in completed_dates else 0 (we don't persist daily ml totals)
+    pct_list = []
+    status_list = []
+    for d in last7:
+        if d in completed_dates:
+            pct = 100
+            status = "achieved"
+        else:
+            # If it's today and session has intake, use that percent
+            if d == today and st.session_state.total_intake:
+                pct = min(round(st.session_state.total_intake / daily_goal * 100), 100)
+                if pct >= 100:
+                    status = "achieved"
+                elif pct >= 75:
+                    status = "almost"
+                elif pct > 0:
+                    status = "partial"
+                else:
+                    status = "missed"
+            else:
+                pct = 0
+                status = "missed"
+        pct_list.append(pct)
+        status_list.append(status)
+
+    # Colors mapping
+    def week_color_for_status(s):
+        if s == "achieved":
+            return "#1A73E8"  # blue
+        if s == "almost":
+            return "#FFD23F"  # yellow
+        if s == "partial":
+            return "#FFD9A6"  # light orange
+        return "#FF6B6B"  # red/missed
+
+    colors = [week_color_for_status(s) for s in status_list]
+
+    df_week = pd.DataFrame({"label": labels, "pct": pct_list, "status": status_list})
+
+    fig_week = go.Figure()
+    fig_week.add_trace(go.Bar(
+        x=df_week["label"],
+        y=df_week["pct"],
+        marker_color=colors,
+        text=[f"{v}%" for v in df_week["pct"]],
+        textposition='outside',
+        hovertemplate="%{x}<br>%{y}%<extra></extra>"
+    ))
+    fig_week.update_layout(yaxis={'title': 'Completion %', 'range': [0, 110]}, showlegend=False,
+                           margin=dict(l=20, r=20, t=20, b=40), height=320, paper_bgcolor="rgba(0,0,0,0)")
+    st.plotly_chart(fig_week, use_container_width=True)
+
+    # Weekly summary text
+    achieved_days = sum(1 for s in status_list if s == "achieved")
+    almost_days = sum(1 for s in status_list if s == "almost")
+    st.write(f"✅ Achieved: {achieved_days} • 🟨 Almost: {almost_days} • 📉 Missed: {7 - achieved_days - almost_days}")
+
+    st.write("---")
+
+    # -------------------------------
+    # Section 3: MONTHLY (bubble grid + stats)
+    # -------------------------------
+    st.markdown("### Monthly Overview")
+
+    # Use current month
+    year = today.year
+    month = today.month
+    days_in_month = calendar.monthrange(year, month)[1]
+    month_dates = [date(year, month, d) for d in range(1, days_in_month + 1)]
+
+    # Build percent for each day
+    month_pct = []
+    month_status = []
+    for d in month_dates:
+        if d in completed_dates:
+            month_pct.append(100)
+            month_status.append("achieved")
+        else:
+            # If it's today and we have session intake:
+            if d == today and st.session_state.total_intake:
+                p = min(round(st.session_state.total_intake / daily_goal * 100), 100)
+                month_pct.append(p)
+                if p >= 100:
+                    month_status.append("achieved")
+                elif p >= 75:
+                    month_status.append("almost")
+                elif p > 0:
+                    month_status.append("partial")
+                else:
+                    month_status.append("missed")
+            else:
+                month_pct.append(0)
+                month_status.append("missed")
+
+    # Build DataFrame for plotting
+    df_month = pd.DataFrame({
+        "day": [d.day for d in month_dates],
+        "date": [d.strftime("%Y-%m-%d") for d in month_dates],
+        "pct": month_pct,
+        "status": month_status
+    })
+
+    # Colors & sizes
+    def color_for_status(s):
+        return "#1A73E8" if s == "achieved" else ("#FFD23F" if s == "almost" else ("#FFD9A6" if s == "partial" else "#E0E0E0"))
+
+    df_month["color"] = df_month["status"].apply(color_for_status)
+    # size scale 15-60
+    df_month["size"] = df_month["pct"].apply(lambda p: 15 + (p / 100) * 45)
+
+    # Create bubble scatter laid out in a grid with x being week index and y day-of-week for nicer layout
+    # Determine weekday for 1st of month
+    first_weekday = date(year, month, 1).weekday()  # Mon=0
+    positions_x = []
+    positions_y = []
+    week_idx = 0
+    weekday_cursor = first_weekday
+    for i, r in df_month.iterrows():
+        positions_x.append(week_idx)
+        positions_y.append((r["day"] + first_weekday - 1) % 7)  # place by weekday (0..6)
+        weekday_cursor += 1
+        if (first_weekday + r["day"]) % 7 == 0:
+            week_idx += 1
+
+    df_month["x"] = positions_x
+    df_month["y"] = positions_y
+
+    fig_month = px.scatter(
+        df_month,
+        x="x",
+        y="y",
+        size="size",
+        size_max=60,
+        hover_name="date",
+        hover_data={"day": True, "pct": True, "x": False, "y": False, "size": False},
+        color="status",
+        color_discrete_map={"achieved": "#1A73E8", "almost": "#FFD23F", "partial": "#FFD9A6", "missed": "#E0E0E0"}
+    )
+
+    # Show day number labels inside bubbles by adding annotations
+    fig_month.update_traces(marker=dict(line=dict(width=1, color="#ffffff")), selector=dict(mode='markers'))
+    annotations = []
+    for i, row in df_month.iterrows():
+        annotations.append(dict(
+            x=row["x"], y=row["y"],
+            text=str(row["day"]),
+            showarrow=False,
+            font=dict(color="#000" if row["pct"] < 60 else "#fff", size=12)
+        ))
+    fig_month.update_layout(annotations=annotations, yaxis=dict(visible=False, range=[-1, 7]),
+                            xaxis=dict(visible=False), height=420, margin=dict(l=10, r=10, t=10, b=10),
+                            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
+
+    st.plotly_chart(fig_month, use_container_width=True)
+
+    # Monthly stats
+    total_met = sum(1 for p in df_month["pct"] if p >= 100)
+    total_days = len(df_month)
+    # best streak overall (compute on all completed_dates)
+    if completed_dates:
+        all_sorted = sorted(completed_dates)
+        best_streak = 0
+        current = 1
+        for i in range(1, len(all_sorted)):
+            if (all_sorted[i] - all_sorted[i-1]).days == 1:
+                current += 1
+            else:
+                if current > best_streak:
+                    best_streak = current
+                current = 1
+        if current > best_streak:
+            best_streak = current
+    else:
+        best_streak = 0
+
+    st.write(f"🏆 Best streak (ever): **{best_streak} days**")
+    st.write(f"💧 This month goals met: **{total_met} / {total_days}**")
+
+    st.write("---")
+    # Legend + navigation
+    st.markdown("""
+    <div style='display:flex; gap:12px; justify-content:center; align-items:center; margin-top:10px;'>
+      <div style='display:flex; align-items:center; gap:6px;'><div style='width:18px; height:18px; background:#1A73E8; border-radius:4px;'></div> Blue = Goal met</div>
+      <div style='display:flex; align-items:center; gap:6px;'><div style='width:18px; height:18px; background:#FFD23F; border-radius:4px;'></div> Yellow = Almost (≥75%)</div>
+      <div style='display:flex; align-items:center; gap:6px;'><div style='width:18px; height:18px; background:#FFD9A6; border-radius:4px;'></div> Light = Partial</div>
+      <div style='display:flex; align-items:center; gap:6px;'><div style='width:18px; height:18px; background:#E0E0E0; border-radius:4px;'></div> Gray = Missed</div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.write("---")
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
@@ -453,7 +740,7 @@ elif st.session_state.page == "report":
             go_to_page("daily_streak")
 
 # -------------------------------
-# DAILY STREAK PAGE (updated)
+# DAILY STREAK PAGE (unchanged from earlier update)
 # -------------------------------
 elif st.session_state.page == "daily_streak":
     username = st.session_state.username
@@ -465,6 +752,7 @@ elif st.session_state.page == "daily_streak":
     # Ensure streak structure exists
     if username not in user_data:
         user_data[username] = {}
+    user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
     streak_info = user_data[username].get("streak", {"completed_days": [], "current_streak": 0})
     completed_iso = streak_info.get("completed_days", [])  # list of "YYYY-MM-DD" strings
     current_streak = streak_info.get("current_streak", 0)
