@@ -614,7 +614,7 @@ elif st.session_state.page == "report":
     missed_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "missed")
 
    
-    st.write("---")
+   
 
     # -------------------------------
     # Monthly stats
@@ -828,4 +828,5 @@ elif st.session_state.page == "daily_streak":
 # -------------------------------
 # End of App
 # -------------------------------
+
 
