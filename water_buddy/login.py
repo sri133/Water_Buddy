@@ -1,14 +1,3 @@
-Yes, I can certainly help with that\! This is a very common issue when saving data to files.
-
-The "unordered" problem almost always happens when you save a standard Python dictionary to a JSON file. By default, the `json.dump()` function doesn't guarantee any specific order for the keys.
-
-The solution is simple: you just need to add the **`sort_keys=True`** parameter to your `json.dump()` calls. This tells the JSON library to alphabetically sort all the keys in your dictionary before writing them to the file, ensuring the output file is always neat, organized, and in a predictable order.
-
-I've made this change in three places in your code (your main `save_user_data` function, the `users.json` creation, and the initial `user_data.json` creation).
-
-Here is your complete, corrected code:
-
-```python
 import streamlit as st
 import json
 import os
@@ -888,3 +877,4 @@ elif st.session_state.page == "daily_streak":
     with col5:
         st.info("You're on Daily Streak")
 ```
+
