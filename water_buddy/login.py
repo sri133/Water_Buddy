@@ -8,7 +8,6 @@ from datetime import datetime, date, timedelta
 from dotenv import load_dotenv
 import google.generativeai as genai
 import calendar
-import plotly.express as px
 import plotly.graph_objects as go
 
 # -------------------------------
@@ -28,7 +27,6 @@ else:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel("models/gemini-2.5-flash")
     except Exception:
-        # If generative API not available, keep app working (chatbot will fallback)
         model = None
 
 # -------------------------------
@@ -51,7 +49,6 @@ if os.path.exists(CREDENTIALS_FILE):
 else:
     users = {}
 
-# Ensure user_data file exists and load
 if os.path.exists(USER_DATA_FILE):
     with open(USER_DATA_FILE, "r") as f:
         try:
@@ -116,7 +113,6 @@ if st.session_state.page == "login":
                 with open(CREDENTIALS_FILE, "w") as f:
                     json.dump(users, f)
                 user_data[username] = {}
-                # initialize structures
                 user_data[username]["profile"] = {}
                 user_data[username]["ai_water_goal"] = 2.5
                 user_data[username]["water_profile"] = {"daily_goal": 2.5, "frequency": "30 minutes"}
@@ -222,7 +218,7 @@ elif st.session_state.page == "settings":
                         if match:
                             suggested_water_intake = float(match.group(1))
                         else:
-                            raise ValueError("No numeric value found in Water Buddy response.")
+                            raise ValueError("No numeric value found.")
                     else:
                         raise RuntimeError("Model not configured")
                 except Exception as e:
@@ -235,7 +231,6 @@ elif st.session_state.page == "settings":
         user_data[username] = user_data.get(username, {})
         user_data[username]["profile"] = new_profile_data
         user_data[username]["ai_water_goal"] = round(suggested_water_intake, 2)
-        # ensure water_profile and streak exist
         user_data[username].setdefault("water_profile", {"daily_goal": suggested_water_intake, "frequency": "30 minutes"})
         user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
         save_user_data(user_data)
@@ -307,7 +302,6 @@ elif st.session_state.page == "home":
                 username = st.session_state.username
                 today_str = str(date.today())
 
-                # ensure structures exist
                 user_data.setdefault(username, {})
                 user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
                 user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
@@ -315,13 +309,10 @@ elif st.session_state.page == "home":
                 user_streak = user_data[username]["streak"]
                 daily_goal = user_data[username]["water_profile"].get("daily_goal", 2.5)
 
-                # If daily goal reached, add today's date to completed_days and recompute streak
                 if st.session_state.total_intake >= daily_goal:
                     if today_str not in user_streak.get("completed_days", []):
                         user_streak.setdefault("completed_days", []).append(today_str)
-                        # keep unique & sorted
                         user_streak["completed_days"] = sorted(list(set(user_streak["completed_days"])))
-                    # Recalculate continuous streak ending today
                     completed_dates = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in user_streak["completed_days"]])
                     streak = 0
                     day_cursor = date.today()
@@ -367,7 +358,7 @@ elif st.session_state.page == "home":
             go_to_page("login")
 
     # -------------------------------
-    # 🤖 Water Buddy Chatbot Popup (Fixed header + removed scrollbar)
+    # 🤖 Water Buddy Chatbot Popup
     # -------------------------------
     st.markdown("""
     <style>
@@ -430,7 +421,6 @@ elif st.session_state.page == "home":
             </div>
             """, unsafe_allow_html=True)
 
-            # Only show bot messages (hide user text)
             for entry in st.session_state.chat_history:
                 if entry["sender"] == "bot":
                     st.markdown(f"<div class='bot-message'>🤖 {entry['text']}</div>", unsafe_allow_html=True)
@@ -453,7 +443,7 @@ elif st.session_state.page == "home":
             st.markdown("</div>", unsafe_allow_html=True)
 
 # -------------------------------
-# REPORT PAGE (UPDATED: Monday-Sunday and star-grid monthly)
+# REPORT PAGE (updated behavior: upcoming days + no plotly toolbar)
 # -------------------------------
 elif st.session_state.page == "report":
     username = st.session_state.username
@@ -466,7 +456,6 @@ elif st.session_state.page == "report":
     user_data[username].setdefault("water_profile", {"daily_goal": user_data.get(username, {}).get("ai_water_goal", 2.5), "frequency": "30 minutes"})
     save_user_data(user_data)
 
-    # Helper: parse completed days to set and dates
     completed_iso = user_data[username]["streak"].get("completed_days", [])
     completed_dates = []
     for s in completed_iso:
@@ -480,9 +469,8 @@ elif st.session_state.page == "report":
     daily_goal = user_data[username]["water_profile"].get("daily_goal", user_data[username].get("ai_water_goal", 2.5))
 
     # -------------------------------
-    # Section 1: DAILY (big circular gauge)
+    # Section: Today's progress gauge
     # -------------------------------
-    today_str = str(today)
     if today in completed_dates:
         today_pct = 100
     else:
@@ -498,9 +486,8 @@ elif st.session_state.page == "report":
         domain={'x': [0, 1], 'y': [0, 1]},
         title={'text': "Today's Hydration", 'font': {'size': 18}},
         gauge={
-            'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#1A73E8"},
+            'axis': {'range': [0, 100]},
             'bar': {'color': "#1A73E8"},
-            'bgcolor': "white",
             'steps': [
                 {'range': [0, 50], 'color': "#FFD9D9"},
                 {'range': [50, 75], 'color': "#FFF1B6"},
@@ -514,7 +501,7 @@ elif st.session_state.page == "report":
         }
     ))
     fig_daily.update_layout(height=300, margin=dict(l=20, r=20, t=30, b=20), paper_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig_daily, use_container_width=True, config={'displayModeBar': False})
+    st.plotly_chart(fig_daily, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
     if today_pct >= 100:
         st.success("🏆 Goal achieved today! Fantastic work — keep the streak alive! 💧")
@@ -528,46 +515,53 @@ elif st.session_state.page == "report":
     st.write("---")
 
     # -------------------------------
-    # Section 2: WEEKLY (Monday -> Sunday)
+    # Section: Weekly (Mon -> Sun)
     # -------------------------------
     st.markdown("### Weekly Progress (Mon → Sun)")
 
-    # Determine current week's Monday
-    monday = today - timedelta(days=today.weekday())  # Monday of current week
+    monday = today - timedelta(days=today.weekday())  # Monday of this week
     week_days = [monday + timedelta(days=i) for i in range(7)]
     labels = [d.strftime("%a\n%d %b") for d in week_days]
 
     pct_list = []
     status_list = []
     for d in week_days:
-        if d in completed_dates:
-            pct = 100
-            status = "achieved"
+        if d > today:
+            # future day
+            pct = 0
+            status = "upcoming"
         else:
-            if d == today and st.session_state.total_intake:
-                pct = min(round(st.session_state.total_intake / daily_goal * 100), 100)
-                if pct >= 100:
-                    status = "achieved"
-                elif pct >= 75:
-                    status = "almost"
-                elif pct > 0:
-                    status = "partial"
-                else:
-                    status = "missed"
+            if d in completed_dates:
+                pct = 100
+                status = "achieved"
             else:
-                pct = 0
-                status = "missed"
+                # for today, take partial progress
+                if d == today and st.session_state.total_intake:
+                    pct = min(round(st.session_state.total_intake / daily_goal * 100), 100)
+                    if pct >= 100:
+                        status = "achieved"
+                    elif pct >= 75:
+                        status = "almost"
+                    elif pct > 0:
+                        status = "partial"
+                    else:
+                        status = "missed"
+                else:
+                    pct = 0
+                    status = "missed"
         pct_list.append(pct)
         status_list.append(status)
 
     def week_color_for_status(s):
         if s == "achieved":
-            return "#1A73E8"
+            return "#1A73E8"   # bright blue
         if s == "almost":
-            return "#FFD23F"
+            return "#FFD23F"   # yellow
         if s == "partial":
-            return "#FFD9A6"
-        return "#FF6B6B"
+            return "#FFD9A6"   # light
+        if s == "upcoming":
+            return "rgba(255,255,255,0.06)"  # faded
+        return "#FF6B6B"      # missed red
 
     colors = [week_color_for_status(s) for s in status_list]
     df_week = pd.DataFrame({"label": labels, "pct": pct_list, "status": status_list})
@@ -577,22 +571,30 @@ elif st.session_state.page == "report":
         x=df_week["label"],
         y=df_week["pct"],
         marker_color=colors,
-        text=[f"{v}%" for v in df_week["pct"]],
+        text=[f"{v}%" if v > 0 else "" for v in df_week["pct"]],
         textposition='outside',
         hovertemplate="%{x}<br>%{y}%<extra></extra>"
     ))
-    fig_week.update_layout(yaxis={'title': 'Completion %', 'range': [0, 110]}, showlegend=False,
-                           margin=dict(l=20, r=20, t=20, b=40), height=320, paper_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False})
 
+    # Make y-range fixed to 0-100
+    fig_week.update_layout(yaxis={'title': 'Completion %', 'range': [0, 100]}, showlegend=False,
+                           margin=dict(l=20, r=20, t=20, b=40), height=340,
+                           paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+
+    # Remove all interactive drag/zoom tools by disabling modebar and scrollZoom
+    st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
+
+    # counts: only count days up to today (exclude future/upcoming)
     achieved_days = sum(1 for s in status_list if s == "achieved")
     almost_days = sum(1 for s in status_list if s == "almost")
-    st.write(f"✅ Achieved: {achieved_days} • 🟨 Almost: {almost_days} • 📉 Missed: {7 - achieved_days - almost_days}")
+    missed_days = sum(1 for s, d in zip(status_list, week_days) if s == "missed" and d <= today)
+
+    st.markdown(f"✅ Achieved: **{achieved_days}** • 🟨 Almost: **{almost_days}** • 📉 Missed: **{missed_days}**", unsafe_allow_html=True)
 
     st.write("---")
 
     # -------------------------------
-    # Section 3: MONTHLY STAR GRID (row-wise, 6 columns)
+    # Section: Monthly star grid (row-wise, upcoming handling)
     # -------------------------------
     st.markdown("### Monthly Overview (tap a star for details)")
 
@@ -601,11 +603,10 @@ elif st.session_state.page == "report":
     days_in_month = calendar.monthrange(year, month)[1]
     month_dates = [date(year, month, d) for d in range(1, days_in_month + 1)]
 
-    # Query param reading
     query_params = st.experimental_get_query_params()
-    selected_day_param = query_params.get("selected_day", [None])[0]  # expects 'YYYY-MM-DD' or None
+    selected_day_param = query_params.get("selected_day", [None])[0]
 
-    # CSS for star grid and animations
+    # CSS for star grid and upcoming
     star_css = """
     <style>
     .star-grid {
@@ -630,27 +631,25 @@ elif st.session_state.page == "report":
       text-decoration:none;
       line-height:1;
     }
-    .star:hover {
-      transform: translateY(-6px) scale(1.06);
-    }
+    .star:hover { transform: translateY(-6px) scale(1.06); }
     .star.dim {
       background: rgba(255,255,255,0.03);
       color: #bdbdbd;
       box-shadow: none;
       filter: grayscale(10%);
     }
+    .star.upcoming {
+      background: rgba(255,255,255,0.02);
+      color: #999;
+      box-shadow: none;
+      filter: grayscale(30%);
+    }
     .star.achieved {
       background: radial-gradient(circle at 30% 20%, #fff6c2, #ffd85c 40%, #ffb400 100%);
       color: #4b2a00;
       box-shadow: 0 8px 22px rgba(255,176,0,0.42), 0 2px 6px rgba(0,0,0,0.18);
-      transform: translateY(0);
     }
-    .star.small {
-      width:38px;
-      height:38px;
-      font-size:18px;
-    }
-    /* Slide-in card */
+    .star.small { width:38px; height:38px; font-size:18px; }
     .slide-card {
       position: fixed;
       left: 50%;
@@ -666,16 +665,10 @@ elif st.session_state.page == "report":
       z-index: 2000;
       animation: slideUp .36s ease;
     }
-    @keyframes slideUp {
-      from { transform: translateX(-50%) translateY(24px); opacity:0; }
-      to { transform: translateX(-50%) translateY(0); opacity:1; }
-    }
+    @keyframes slideUp { from { transform: translateX(-50%) translateY(24px); opacity:0; } to { transform: translateX(-50%) translateY(0); opacity:1; } }
     .slide-card h4 { margin:0 0 6px 0; font-size:16px; }
     .slide-card p { margin:0; font-size:14px; color:#333; }
-    .close-btn {
-      display:inline-block; margin-top:10px; color:#1A73E8; text-decoration:none; font-weight:600; cursor:pointer;
-    }
-    /* auto-hide on scroll helper (no visible effect) */
+    .close-btn { display:inline-block; margin-top:10px; color:#1A73E8; text-decoration:none; font-weight:600; cursor:pointer; }
     @media(max-width:600px){
       .star-grid { grid-template-columns: repeat(4, 1fr); gap:10px; }
       .star { width:36px; height:36px; font-size:16px; }
@@ -684,41 +677,39 @@ elif st.session_state.page == "report":
     </style>
     """
 
-    # Build HTML for stars (row-wise order naturally by grid)
     stars_html = "<div class='star-grid'>"
     for d in month_dates:
         day_num = d.day
         iso = d.strftime("%Y-%m-%d")
-        achieved = d in completed_dates
-        css_class = "achieved" if achieved else "dim"
-        # link to same page with selected_day param (simple query param)
-        # using full URL is fine since query param will reload and be read
+        if d > today:
+            css_class = "upcoming"
+        else:
+            css_class = "achieved" if d in completed_dates else "dim"
         href = f"?selected_day={iso}"
-        # use star glyph ★ for star
         stars_html += f"<a class='star {css_class} small' href='{href}' title='Day {day_num}'>★</a>"
     stars_html += "</div>"
 
-    # render CSS + stars
     st.markdown(star_css + stars_html, unsafe_allow_html=True)
 
-    # If a day is selected via query param, show slide card with details
+    # Slide card for selected day
     if selected_day_param:
         try:
             sel_date = datetime.strptime(selected_day_param, "%Y-%m-%d").date()
             sel_day_num = sel_date.day
-            achieved_flag = sel_date in completed_dates
-            # card HTML
+            if sel_date > today:
+                status_txt = "upcoming"
+            else:
+                status_txt = "achieved" if sel_date in completed_dates else "missed"
             card_html = "<div class='slide-card'>"
             card_html += f"<h4>Day {sel_day_num} — {sel_date.strftime('%b %d, %Y')}</h4>"
-            if achieved_flag:
-                card_html += "<p>🎉 Goal completed on this day! Great job — you earned a glowing star!</p>"
+            if status_txt == "achieved":
+                card_html += "<p>🎉 Goal completed on this day! Great job.</p>"
+            elif status_txt == "upcoming":
+                card_html += "<p>⏳ This day is upcoming — no data yet.</p>"
             else:
-                card_html += "<p>💧 Goal missed on this day. Small steps tomorrow — you can do it!</p>"
-            # close button uses JS to remove query param without reload (history.replaceState)
+                card_html += "<p>💧 Goal missed on this day. Keep trying — tomorrow is new!</p>"
             card_html += "<div><span class='close-btn' onclick=\"history.replaceState(null, '', window.location.pathname);\">Close</span></div>"
             card_html += "</div>"
-
-            # JS: hide card on scroll (removes query param)
             js_hide_on_scroll = """
             <script>
             (function(){
@@ -737,11 +728,11 @@ elif st.session_state.page == "report":
             pass
 
     st.write("---")
-    # Monthly stats summary
-    total_met = sum(1 for d in month_dates if d in completed_dates or (d == today and st.session_state.total_intake and st.session_state.total_intake >= daily_goal))
+
+    # Monthly stats
+    total_met = sum(1 for d in month_dates if (d in completed_dates) or (d == today and st.session_state.total_intake and st.session_state.total_intake >= daily_goal))
     total_days = len(month_dates)
 
-    # compute best streak overall (across all recorded completed_dates)
     if completed_dates:
         all_sorted = sorted(completed_dates)
         best_streak = 0
@@ -762,11 +753,11 @@ elif st.session_state.page == "report":
     st.write(f"💧 This month goals met: **{total_met} / {total_days}**")
 
     st.write("---")
-    # Legend + navigation
     st.markdown("""
     <div style='display:flex; gap:12px; justify-content:center; align-items:center; margin-top:10px;'>
       <div style='display:flex; align-items:center; gap:6px;'><div style='width:18px; height:18px; background:#FFD85C; border-radius:4px;'></div> Glowing = Achieved</div>
       <div style='display:flex; align-items:center; gap:6px;'><div style='width:18px; height:18px; background:rgba(255,255,255,0.06); border-radius:4px;'></div> Dim = Missed</div>
+      <div style='display:flex; align-items:center; gap:6px;'><div style='width:18px; height:18px; background:rgba(255,255,255,0.02); border-radius:4px;'></div> Faded = Upcoming</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -797,15 +788,13 @@ elif st.session_state.page == "daily_streak":
     month_name = today.strftime("%B %Y")
     days_in_month = calendar.monthrange(year, month)[1]
 
-    # Ensure streak structure exists
     if username not in user_data:
         user_data[username] = {}
     user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
     streak_info = user_data[username].get("streak", {"completed_days": [], "current_streak": 0})
-    completed_iso = streak_info.get("completed_days", [])  # list of "YYYY-MM-DD" strings
+    completed_iso = streak_info.get("completed_days", [])
     current_streak = streak_info.get("current_streak", 0)
 
-    # Convert completed days to date objects and filter to this month
     completed_dates = []
     for s in completed_iso:
         try:
@@ -816,28 +805,23 @@ elif st.session_state.page == "daily_streak":
     completed_dates_in_month = sorted([d for d in completed_dates if d.year == year and d.month == month])
     completed_days_numbers = [d.day for d in completed_dates_in_month]
 
-    # Determine last completed day in this month (if any)
     last_completed_day_num = max(completed_days_numbers) if completed_days_numbers else None
 
-    # Build calendar grid: 7 columns
     grid_html = "<div style='display:grid; grid-template-columns:repeat(7, 1fr); gap:8px; text-align:center;'>"
     for day in range(1, days_in_month + 1):
-        # decide color
         if day in completed_days_numbers:
-            color = "#1A73E8"  # Blue for completed
+            color = "#1A73E8"
             text_color = "white"
         else:
-            # if there's any completed day and this day is before the last completed day and is not completed -> red
             if last_completed_day_num and day < last_completed_day_num:
-                color = "#FF4B4B"  # Red missed (streak broken / between streaks)
+                color = "#FF4B4B"
                 text_color = "white"
             else:
-                color = "#E0E0E0"  # Gray upcoming / not met yet
+                color = "#E0E0E0"
                 text_color = "black"
         grid_html += f"<div style='background-color:{color}; border-radius:8px; padding:10px; color:{text_color}; font-weight:bold;'>{day}</div>"
     grid_html += "</div>"
 
-    # Display header + circle with dynamic streak count
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>🔥 Daily Streak</h1>", unsafe_allow_html=True)
     st.markdown(f"<h3 style='text-align:center; color:#1A73E8; margin-top:6px;'>{month_name}</h3>", unsafe_allow_html=True)
 
@@ -850,11 +834,9 @@ elif st.session_state.page == "daily_streak":
     </div>
     """, unsafe_allow_html=True)
 
-    # Message below circle
     if current_streak > 0:
         st.success(f"🔥 You're on a {current_streak}-day streak! Keep it up!")
     else:
-        # If user has no recorded completed days at all, show the "haven't started" message
         all_completed_any_month = any(user_data[username].get("streak", {}).get("completed_days", []))
         if not all_completed_any_month:
             st.info("🎯 You haven't started your streak yet")
@@ -862,12 +844,8 @@ elif st.session_state.page == "daily_streak":
             st.info("⚠️ You have no active streak right now — start drinking to build one!")
 
     st.write("---")
-
-    # Show calendar grid
     st.markdown(grid_html, unsafe_allow_html=True)
-
     st.write("---")
-    # Legend
     st.markdown("""
     <div style='display:flex; gap:12px; justify-content:center; align-items:center; margin-top:10px;'>
       <div style='display:flex; align-items:center; gap:6px;'><div style='width:18px; height:18px; background:#1A73E8; border-radius:4px;'></div> Blue = Goal met</div>
