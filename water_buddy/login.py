@@ -1,47 +1,29 @@
-"""
-HP PARTNER - Complete Streamlit app (single file)
-
-Features:
-- Local username/password login & signup (stored in users.json)
-- Personal Settings (profile, BMI calc, AI water goal via Gemini if configured)
-- Water Intake page (add ml amounts, update daily streak when goal met)
-- Home page with water bottle visual and quick nav
-- Report page: ONLY the star grid (dates inside stars, colored by achieved/missed/upcoming)
-- Daily Streak page: star grid (same as Report) + current streak header and small slide-card when selecting a day
-- Gemini-based chatbot popup (works if GOOGLE_API_KEY provided in Streamlit secrets or .env)
-- All user data stored in user_data.json
-Notes:
-- Replace or supply GOOGLE_API_KEY in Streamlit secrets or .env to enable Gemini calls.
-- Run with: streamlit run app.py
-"""
 
 import streamlit as st
 import json
 import os
-import re
 import pycountry
-import calendar
+import re
+import pandas as pd
 from datetime import datetime, date, timedelta
 from dotenv import load_dotenv
-
-# Try to import google generative AI (optional)
-try:
-    import google.generativeai as genai
-except Exception:
-    genai = None
+import google.generativeai as genai
+import calendar
+import plotly.graph_objects as go
 
 # -------------------------------
-# Config / API key
+# ✅ Load API key from .env or Streamlit Secrets
 # -------------------------------
 api_key = None
 if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
 else:
-    load_dotenv(silent=True)
+    load_dotenv()
     api_key = os.getenv("GOOGLE_API_KEY")
 
-model = None
-if genai and api_key:
+if not api_key:
+    st.error("❌ Missing API key. Please add GOOGLE_API_KEY in your .env or Streamlit Secrets.")
+else:
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel("models/gemini-2.5-flash")
@@ -49,38 +31,38 @@ if genai and api_key:
         model = None
 
 # -------------------------------
-# Streamlit page config
+# ✅ Streamlit Page Config
 # -------------------------------
 st.set_page_config(page_title="HP PARTNER", page_icon="💧", layout="centered")
 
 # -------------------------------
-# Files
+# File setup (user_data.json auto-created)
 # -------------------------------
 CREDENTIALS_FILE = "users.json"
 USER_DATA_FILE = "user_data.json"
 
 if os.path.exists(CREDENTIALS_FILE):
-    try:
-        with open(CREDENTIALS_FILE, "r") as f:
+    with open(CREDENTIALS_FILE, "r") as f:
+        try:
             users = json.load(f)
-    except Exception:
-        users = {}
+        except Exception:
+            users = {}
 else:
     users = {}
 
 if os.path.exists(USER_DATA_FILE):
-    try:
-        with open(USER_DATA_FILE, "r") as f:
+    with open(USER_DATA_FILE, "r") as f:
+        try:
             user_data = json.load(f)
-    except Exception:
-        user_data = {}
+        except Exception:
+            user_data = {}
 else:
     user_data = {}
     with open(USER_DATA_FILE, "w") as f:
         json.dump(user_data, f, indent=4, sort_keys=True)
 
 # -------------------------------
-# Session state defaults
+# Streamlit session setup
 # -------------------------------
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -98,21 +80,16 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 # -------------------------------
-# Helpers: save/load
+# Helper Functions
 # -------------------------------
 def save_user_data(data):
     with open(USER_DATA_FILE, "w") as f:
         json.dump(data, f, indent=4, sort_keys=True)
 
-def save_users():
-    with open(CREDENTIALS_FILE, "w") as f:
-        json.dump(users, f, indent=4, sort_keys=True)
-
 def go_to_page(page_name: str):
     st.session_state.page = page_name
-    st.experimental_rerun()
+    st.rerun()
 
-# country list
 countries = [c.name for c in pycountry.countries]
 
 # -------------------------------
@@ -134,21 +111,22 @@ if st.session_state.page == "login":
                 st.error("❌ Username and password cannot be empty.")
             else:
                 users[username] = password
-                save_users()
-
-                # initialize user_data entries
+                with open(CREDENTIALS_FILE, "w") as f:
+                    json.dump(users, f, indent=4, sort_keys=True)
+                
                 user_data[username] = {}
                 user_data[username]["profile"] = {}
                 user_data[username]["ai_water_goal"] = 2.5
                 user_data[username]["water_profile"] = {"daily_goal": 2.5, "frequency": "30 minutes"}
                 user_data[username]["streak"] = {"completed_days": [], "current_streak": 0}
                 save_user_data(user_data)
-
                 st.success("✅ Account created successfully! Please login.")
-        else:  # Login
+        
+        elif option == "Login":
             if username in users and users[username] == password:
                 st.session_state.logged_in = True
                 st.session_state.username = username
+                
                 if username in user_data and "profile" in user_data[username] and user_data[username]["profile"]:
                     go_to_page("home")
                 else:
@@ -165,39 +143,39 @@ elif st.session_state.page == "settings":
 
     username = st.session_state.username
     saved = user_data.get(username, {}).get("profile", {})
-
+    
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Personal Settings</h1>", unsafe_allow_html=True)
-
+    
     name = st.text_input("Name", value=saved.get("Name", username))
     age = st.text_input("Age", value=saved.get("Age", ""))
-    # default to India if saved not present
-    default_country = saved.get("Country", "India") if saved.get("Country") else "India"
-    country = st.selectbox("Country", countries, index=countries.index(default_country) if default_country in countries else 0)
+    country = st.selectbox("Country", countries, index=countries.index(saved.get("Country", "India")) if saved.get("Country") else countries.index("India"))
     language = st.text_input("Language", value=saved.get("Language", ""))
-
+    
     st.write("---")
-
+    
     height_unit = st.radio("Height Unit", ["cm", "feet"], horizontal=True)
     height = st.number_input(
         f"Height ({height_unit})",
         value=float(saved.get("Height", "0").split()[0]) if "Height" in saved else 0.0
     )
-
+    
     weight_unit = st.radio("Weight Unit", ["kg", "lbs"], horizontal=True)
     weight = st.number_input(
         f"Weight ({weight_unit})",
         value=float(saved.get("Weight", "0").split()[0]) if "Weight" in saved else 0.0
     )
 
-    def calculate_bmi(weight_val, height_val, weight_unit_val, height_unit_val):
-        if height_unit_val == "feet":
-            height_m = height_val * 0.3048
+    def calculate_bmi(weight, height, weight_unit, height_unit):
+        if height_unit == "feet":
+            height_m = height * 0.3048
         else:
-            height_m = height_val / 100
-        if weight_unit_val == "lbs":
-            weight_kg = weight_val * 0.453592
+            height_m = height / 100
+            
+        if weight_unit == "lbs":
+            weight_kg = weight * 0.453592
         else:
-            weight_kg = weight_val
+            weight_kg = weight
+            
         return round(weight_kg / (height_m ** 2), 2) if height_m > 0 else 0
 
     bmi = calculate_bmi(weight, height, weight_unit, height_unit)
@@ -227,6 +205,7 @@ elif st.session_state.page == "settings":
 
     if st.button("Save & Continue ➡️"):
         recalc_needed = new_profile_data != old_profile
+        
         if recalc_needed:
             with st.spinner("🤖 Water Buddy is calculating your ideal water intake..."):
                 prompt = f"""
@@ -240,6 +219,7 @@ elif st.session_state.page == "settings":
                 Health condition: {health_condition}
                 Health problems: {health_problems if health_problems else 'None'}
                 """
+                
                 try:
                     if model:
                         response = model.generate_content(prompt)
@@ -258,14 +238,15 @@ elif st.session_state.page == "settings":
         else:
             suggested_water_intake = user_data.get(username, {}).get("ai_water_goal", 2.5)
             text_output = "Profile unchanged — using previous goal."
-
+            
         user_data[username] = user_data.get(username, {})
         user_data[username]["profile"] = new_profile_data
         user_data[username]["ai_water_goal"] = round(suggested_water_intake, 2)
         user_data[username].setdefault("water_profile", {"daily_goal": suggested_water_intake, "frequency": "30 minutes"})
         user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
+        
         save_user_data(user_data)
-
+        
         st.success(f"✅ Profile saved! Water Buddy suggests {suggested_water_intake:.2f} L/day 💧")
         st.info(f"Water Buddy output: {text_output}")
         go_to_page("water_profile")
@@ -277,23 +258,20 @@ elif st.session_state.page == "water_profile":
     username = st.session_state.username
     saved = user_data.get(username, {}).get("water_profile", {})
     ai_goal = user_data.get(username, {}).get("ai_water_goal", 2.5)
-
+    
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Intake</h1>", unsafe_allow_html=True)
     st.success(f"Your ideal daily water intake is **{ai_goal} L/day**, as suggested by Water Buddy 💧")
-
+    
     daily_goal = st.slider("Set your daily water goal (L):", 0.5, 10.0, float(ai_goal), 0.1)
-
+    
     frequency_options = [f"{i} minutes" for i in range(5, 185, 5)]
-    # ensure default index exists
-    default_freq = saved.get("frequency", "30 minutes")
-    try:
-        idx = frequency_options.index(default_freq)
-    except Exception:
-        idx = frequency_options.index("30 minutes")
-    selected_frequency = st.selectbox("🔔 Reminder Frequency:", frequency_options, index=idx)
-
+    selected_frequency = st.selectbox(
+        "🔔 Reminder Frequency:",
+        frequency_options,
+        index=frequency_options.index(saved.get("frequency", "30 minutes"))
+    )
+    
     if st.button("💾 Save & Continue ➡️"):
-        user_data.setdefault(username, {})
         user_data[username]["water_profile"] = {"daily_goal": daily_goal, "frequency": selected_frequency}
         save_user_data(user_data)
         st.success("✅ Water profile saved successfully!")
@@ -304,14 +282,16 @@ elif st.session_state.page == "water_profile":
 # -------------------------------
 elif st.session_state.page == "home":
     username = st.session_state.username
-    daily_goal = user_data.get(username, {}).get("water_profile", {}).get("daily_goal", user_data.get(username, {}).get("ai_water_goal", 2.5))
-
+    daily_goal = user_data.get(username, {}).get("water_profile", {}).get(
+        "daily_goal", user_data.get(username, {}).get("ai_water_goal", 2.5)
+    )
+    
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
-
+    
     fill_percent = min(st.session_state.total_intake / daily_goal, 1.0) if daily_goal > 0 else 0
-
+    
     bottle_html = f"""
-    <div style='width: 120px; height: 300px; border: 3px solid #1A73E8; border-radius: 20px; position: relative; margin: auto;
+    <div style='width: 120px; height: 300px; border: 3px solid #1A73E8; border-radius: 20px; position: relative; margin: auto; 
     background: linear-gradient(to top, #1A73E8 {fill_percent*100}%, #E0E0E0 {fill_percent*100}%);'>
         <div style='position: absolute; bottom: 5px; width: 100%; text-align: center; color: #fff; font-weight: bold; font-size: 18px;'>
             {round(st.session_state.total_intake,2)}L / {daily_goal}L
@@ -319,10 +299,11 @@ elif st.session_state.page == "home":
     </div>
     """
     st.markdown(bottle_html, unsafe_allow_html=True)
+    
     st.write("---")
-
+    
     water_input = st.text_input("Enter water amount (in ml):", key="water_input")
-
+    
     if st.button("➕ Add Water"):
         value = re.sub("[^0-9.]", "", water_input).strip()
         if value:
@@ -332,26 +313,25 @@ elif st.session_state.page == "home":
                 st.session_state.total_intake += liters
                 st.session_state.water_intake_log.append(f"{ml} ml")
                 st.success(f"✅ Added {ml} ml of water!")
-
-                # update streak if goal met
+                
+                # ✅ Update daily streak data when user meets their goal
                 username = st.session_state.username
                 today_str = str(date.today())
-
+                
                 user_data.setdefault(username, {})
                 user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
                 user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
-
+                
                 user_streak = user_data[username]["streak"]
                 daily_goal = user_data[username]["water_profile"].get("daily_goal", 2.5)
-
+                
                 if st.session_state.total_intake >= daily_goal:
                     if today_str not in user_streak.get("completed_days", []):
                         user_streak.setdefault("completed_days", []).append(today_str)
                         user_streak["completed_days"] = sorted(list(set(user_streak["completed_days"])))
-
-                        # recalc current streak
+                        
                         completed_dates = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in user_streak["completed_days"]])
-
+                        
                         streak = 0
                         day_cursor = date.today()
                         while True:
@@ -360,13 +340,14 @@ elif st.session_state.page == "home":
                                 day_cursor = day_cursor - timedelta(days=1)
                             else:
                                 break
-
+                        
                         user_streak["current_streak"] = streak
                         user_data[username]["streak"] = user_streak
                         save_user_data(user_data)
-
-                # refresh app state (keeps input cleared)
-                st.experimental_rerun()
+                
+                st.rerun()
+                st.stop()
+                
             except ValueError:
                 st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
         else:
@@ -376,10 +357,11 @@ elif st.session_state.page == "home":
         st.write("### Today's Log:")
         for i, entry in enumerate(st.session_state.water_intake_log, 1):
             st.write(f"{i}. {entry}")
-
+            
     st.write("---")
-
+    
     col1, col2, col3, col4, col5 = st.columns(5)
+    
     with col1:
         if st.button("👤 Personal Settings"):
             go_to_page("settings")
@@ -395,10 +377,11 @@ elif st.session_state.page == "home":
     with col5:
         if st.button("🚪 Logout"):
             st.session_state.logged_in = False
-            st.session_state.username = ""
             go_to_page("login")
 
-    # Chatbot floating button & window
+    # -------------------------------
+    # 🤖 Water Buddy Chatbot Popup
+    # -------------------------------
     st.markdown("""
     <style>
     .chat-button {
@@ -456,15 +439,16 @@ elif st.session_state.page == "home":
             st.markdown("<div class='chat-window'>", unsafe_allow_html=True)
             st.markdown("""
             <div style='text-align:center; color:#1A73E8; font-weight:600; font-size:18px;'>
-                💬 Water Buddy <span style='font-size:14px; color:#555;'>— powered by Gemini</span>
+                💬 Water Buddy <span style='font-size:14px; color:#555;'>— powered by Gemini 2.5 Flash</span>
             </div>
             """, unsafe_allow_html=True)
-
+            
             for entry in st.session_state.chat_history:
                 if entry["sender"] == "bot":
                     st.markdown(f"<div class='bot-message'>🤖 {entry['text']}</div>", unsafe_allow_html=True)
-
+            
             user_msg = st.text_input("Type your message...", key="chat_input")
+            
             if st.button("Send", key="send_btn"):
                 if user_msg.strip():
                     try:
@@ -476,19 +460,21 @@ elif st.session_state.page == "home":
                             reply = "⚠️ Chatbot not configured currently."
                     except Exception:
                         reply = "⚠️ Sorry, I’m having trouble connecting right now."
-
+                    
                     st.session_state.chat_history.append({"sender": "bot", "text": reply})
-                    st.experimental_rerun()
+                    st.rerun()
 
             st.markdown("</div>", unsafe_allow_html=True)
 
 # -------------------------------
-# REPORT PAGE: ONLY STAR GRID (no heading/legend/stats)
+# REPORT PAGE (updated behavior: removed star grid and legend)
 # -------------------------------
 elif st.session_state.page == "report":
     username = st.session_state.username
+    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>📊 Hydration Report</h1>", unsafe_allow_html=True)
+    st.write("---")
 
-    # Ensure user data exists
+    # Ensure user structures exist
     user_data.setdefault(username, {})
     user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
     user_data[username].setdefault("water_profile", {"daily_goal": user_data.get(username, {}).get("ai_water_goal", 2.5), "frequency": "30 minutes"})
@@ -502,82 +488,164 @@ elif st.session_state.page == "report":
             completed_dates.append(d)
         except Exception:
             continue
-
-    # Today's context
+    
     today = date.today()
+    daily_goal = user_data[username]["water_profile"].get("daily_goal", user_data[username].get("ai_water_goal", 2.5))
 
-    # Build star grid (dates inside each star), colored by status
+    # -------------------------------
+    # Section: Today's progress gauge
+    # -------------------------------
+    if today in completed_dates:
+        today_pct = 100
+    else:
+        if st.session_state.total_intake:
+            today_pct = min(round(st.session_state.total_intake / daily_goal * 100), 100)
+        else:
+            today_pct = 0
+
+    st.markdown("### Today's Progress")
+    fig_daily = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=today_pct,
+        domain={'x': [0, 1], 'y': [0, 1]},
+        title={'text': "Today's Hydration", 'font': {'size': 18}},
+        gauge={
+            'axis': {'range': [0, 100]},
+            'bar': {'color': "#1A73E8"},
+            'steps': [
+                {'range': [0, 50], 'color': "#FFD9D9"},
+                {'range': [50, 75], 'color': "#FFF1B6"},
+                {'range': [75, 100], 'color': "#D7EEFF"}
+            ],
+            'threshold': {
+                'line': {'color': "#0B63C6", 'width': 6},
+                'thickness': 0.75,
+                'value': 100
+            }
+        }
+    ))
+    fig_daily.update_layout(height=300, margin=dict(l=20, r=20, t=30, b=20), paper_bgcolor="rgba(0,0,0,0)")
+    st.plotly_chart(fig_daily, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
+
+    if today_pct >= 100:
+        st.success("🏆 Goal achieved today! Fantastic work — keep the streak alive! 💧")
+    elif today_pct >= 75:
+        st.info(f"💦 You're {today_pct}% there — a little more and you hit the goal!")
+    elif today_pct > 0:
+        st.info(f"🙂 You've completed {today_pct}% of your goal today — keep sipping!")
+    else:
+        st.info("🎯 Not started yet — let's drink some water and get moving!")
+
+    st.write("---")
+    
+    # -------------------------------
+    # Section: Weekly (Mon -> Sun)
+    # -------------------------------
+    st.markdown("### Weekly Progress (Mon → Sun)")
+    
+    monday = today - timedelta(days=today.weekday()) # Monday of this week
+    week_days = [monday + timedelta(days=i) for i in range(7)]
+    labels = [d.strftime("%a\n%d %b") for d in week_days]
+    
+    pct_list = []
+    status_list = []
+
+    for d in week_days:
+        if d > today:
+            # future day
+            pct = 0
+            status = "upcoming"
+        else:
+            if d in completed_dates:
+                pct = 100
+                status = "achieved"
+            else:
+                # for today, take partial progress
+                if d == today and st.session_state.total_intake:
+                    pct = min(round(st.session_state.total_intake / daily_goal * 100), 100)
+                    if pct >= 100:
+                        status = "achieved"
+                    elif pct >= 75:
+                        status = "almost"
+                    elif pct > 0:
+                        status = "partial"
+                    else:
+                        status = "missed"
+                else:
+                    pct = 0
+                    status = "missed"
+        pct_list.append(pct)
+        status_list.append(status)
+
+    def week_color_for_status(s):
+        if s == "achieved":
+            return "#1A73E8"  # bright blue
+        if s == "almost":
+            return "#FFD23F"  # yellow
+        if s == "partial":
+            return "#FFD9A6"  # light
+        if s == "upcoming":
+            return "rgba(255,255,255,0.06)" # faded
+        return "#FF6B6B"   # missed red
+
+    colors = [week_color_for_status(s) for s in status_list]
+    df_week = pd.DataFrame({"label": labels, "pct": pct_list, "status": status_list})
+    
+    fig_week = go.Figure()
+    fig_week.add_trace(go.Bar(
+        x=df_week["label"],
+        y=df_week["pct"],
+        marker_color=colors,
+        text=[f"{v}%" if v > 0 else "" for v in df_week["pct"]],
+        textposition='outside',
+        hovertemplate="%{x}<br>%{y}%<extra></extra>"
+    ))
+    
+    # Make y-range fixed to 0-100
+    fig_week.update_layout(yaxis={'title': 'Completion %', 'range': [0, 100]}, showlegend=False,
+                            margin=dict(l=20, r=20, t=20, b=40), height=340,
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+
+    # Remove all interactive drag/zoom tools by disabling modebar and scrollZoom
+    st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
+    
+    # ----- FIXED: Count only days up to today for the summary counts -----
+    achieved_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "achieved")
+    almost_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "almost")
+    missed_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "missed")
+
+   
+   
+
+    # -------------------------------
+    # Monthly stats
+    # -------------------------------
     year = today.year
     month = today.month
     days_in_month = calendar.monthrange(year, month)[1]
+    month_dates = [date(year, month, d) for d in range(1, days_in_month + 1)]
 
-    star_css = """
-    <style>
-    .star-grid {
-       display: grid;
-       grid-template-columns: repeat(6, 1fr);
-       gap: 14px;
-       justify-items: center;
-       align-items: center;
-       padding: 6px 4%;
-    }
-    .star {
-       width:42px;
-       height:42px;
-       display:flex;
-       align-items:center;
-       justify-content:center;
-       font-size:16px;
-       border-radius:6px;
-       transition: transform .12s ease, box-shadow .12s ease, background-color .12s ease, filter .12s ease;
-       cursor: pointer;
-       user-select: none;
-       text-decoration:none;
-       line-height:1;
-    }
-    .star:hover { transform: translateY(-6px) scale(1.06); }
-    .star.dim {
-       background: rgba(255,255,255,0.03);
-       color: #bdbdbd;
-       box-shadow: none;
-       filter: grayscale(10%);
-    }
-    .star.upcoming {
-       background: rgba(255,255,255,0.02);
-       color: #999;
-       box-shadow: none;
-       filter: grayscale(30%);
-    }
-    .star.achieved {
-       background: radial-gradient(circle at 30% 20%, #fff6c2, #ffd85c 40%, #ffb400 100%);
-       color: #4b2a00;
-       box-shadow: 0 8px 22px rgba(255,176,0,0.42), 0 2px 6px rgba(0,0,0,0.18);
-    }
-    .star.small { width:38px; height:38px; font-size:14px; }
-    @media(max-width:600px){
-       .star-grid { grid-template-columns: repeat(4, 1fr); gap:10px; }
-       .star { width:36px; height:36px; font-size:14px; }
-    }
-    </style>
-    """
+    total_met = sum(1 for d in month_dates if (d in completed_dates) or (d == today and st.session_state.total_intake and st.session_state.total_intake >= daily_goal))
+    total_days = len(month_dates)
 
-    stars_html = "<div class='star-grid'>"
-    for d in range(1, days_in_month + 1):
-        the_date = date(year, month, d)
-        iso = the_date.strftime("%Y-%m-%d")
-        if the_date > today:
-            css_class = "upcoming small"
-        else:
-            css_class = "achieved small" if the_date in completed_dates else "dim small"
-        # date number inside the star (clickable to set query param)
-        href = f"?selected_day={iso}"
-        stars_html += f"<a class='star {css_class}' href='{href}' title='Day {d}'>{d}</a>"
-    stars_html += "</div>"
+    if completed_dates:
+        all_sorted = sorted(completed_dates)
+        best_streak = 0
+        current = 1
+        for i in range(1, len(all_sorted)):
+            if (all_sorted[i] - all_sorted[i-1]).days == 1:
+                current += 1
+            else:
+                if current > best_streak:
+                    best_streak = current
+                current = 1
+        if current > best_streak:
+            best_streak = current
+    else:
+        best_streak = 0
 
-    st.markdown(star_css + stars_html, unsafe_allow_html=True)
-
-    # Keep navigation buttons but remove any stats/legends
     st.write("---")
+
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         if st.button("🏠 Home"):
@@ -593,9 +661,9 @@ elif st.session_state.page == "report":
     with col5:
         if st.button("🔥 Daily Streak"):
             go_to_page("daily_streak")
-
+            
 # -------------------------------
-# DAILY STREAK PAGE: STAR GRID + CURRENT STREAK
+# DAILY STREAK PAGE (REPLACED: star grid here; no title/legend)
 # -------------------------------
 elif st.session_state.page == "daily_streak":
     username = st.session_state.username
@@ -605,6 +673,7 @@ elif st.session_state.page == "daily_streak":
 
     if username not in user_data:
         user_data[username] = {}
+        
     user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
     streak_info = user_data[username].get("streak", {"completed_days": [], "current_streak": 0})
     completed_iso = streak_info.get("completed_days", [])
@@ -618,7 +687,7 @@ elif st.session_state.page == "daily_streak":
         except Exception:
             continue
 
-    # Build star-grid HTML (dates inside stars), no title / no legend
+    # Build star-grid styles and HTML (showing date numbers inside each star)
     star_css = """
     <style>
     .star-grid {
@@ -662,33 +731,14 @@ elif st.session_state.page == "daily_streak":
        box-shadow: 0 8px 22px rgba(255,176,0,0.42), 0 2px 6px rgba(0,0,0,0.18);
     }
     .star.small { width:38px; height:38px; font-size:14px; }
-    .slide-card {
-       position: fixed;
-       left: 50%;
-       transform: translateX(-50%);
-       bottom: 18px;
-       width: 340px;
-       max-width: 92%;
-       background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,250,250,0.98));
-       color:#111;
-       border-radius:12px;
-       box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-       padding:14px 16px;
-       z-index: 2000;
-       animation: slideUp .36s ease;
-    }
-    @keyframes slideUp { from { transform: translateX(-50%) translateY(24px); opacity:0; } to { transform: translateX(-50%) translateY(0); opacity:1; } }
-    .slide-card h4 { margin:0 0 6px 0; font-size:16px; }
-    .slide-card p { margin:0; font-size:14px; color:#333; }
-    .close-btn { display:inline-block; margin-top:10px; color:#1A73E8; text-decoration:none; font-weight:600; cursor:pointer; }
     @media(max-width:600px){
        .star-grid { grid-template-columns: repeat(4, 1fr); gap:10px; }
        .star { width:36px; height:36px; font-size:14px; }
-       .slide-card { width:92%; bottom: 12px; }
     }
     </style>
     """
 
+    # Generate stars HTML with date numbers and status classes
     stars_html = "<div class='star-grid'>"
     for d in range(1, days_in_month + 1):
         the_date = date(year, month, d)
@@ -698,37 +748,38 @@ elif st.session_state.page == "daily_streak":
         else:
             css_class = "achieved small" if the_date in completed_dates else "dim small"
         href = f"?selected_day={iso}"
+        # Put the day number inside the star
         stars_html += f"<a class='star {css_class}' href='{href}' title='Day {d}'>{d}</a>"
     stars_html += "</div>"
 
     st.markdown(star_css + stars_html, unsafe_allow_html=True)
 
-    # Day selected slide-card (same UX as Report but on Daily Streak)
+    # If a day is selected via query param, show slide card details (same UX as before)
     query_params = st.experimental_get_query_params()
     selected_day_param = query_params.get("selected_day", [None])[0]
     if selected_day_param:
         try:
             sel_date = datetime.strptime(selected_day_param, "%Y-%m-%d").date()
             sel_day_num = sel_date.day
-
+            
             if sel_date > today:
                 status_txt = "upcoming"
             else:
                 status_txt = "achieved" if sel_date in completed_dates else "missed"
 
-            card_html = "<div class='slide-card'>"
-            card_html += f"<h4>Day {sel_day_num} — {sel_date.strftime('%b %d, %Y')}</h4>"
-
+            card_html = "<div class='slide-card' style='position: fixed; left:50%; transform: translateX(-50%); bottom:18px; width:340px; max-width:92%; background:linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,250,250,0.98)); color:#111; border-radius:12px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); padding:14px 16px; z-index:2000;'>"
+            card_html += f"<h4 style='margin:0 0 6px 0; font-size:16px;'>Day {sel_day_num} — {sel_date.strftime('%b %d, %Y')}</h4>"
+            
             if status_txt == "achieved":
-                card_html += "<p>🎉 Goal completed on this day! Great job.</p>"
+                card_html += "<p style='margin:0; font-size:14px; color:#333;'>🎉 Goal completed on this day! Great job.</p>"
             elif status_txt == "upcoming":
-                card_html += "<p>⏳ This day is upcoming — no data yet.</p>"
+                card_html += "<p style='margin:0; font-size:14px; color:#333;'>⏳ This day is upcoming — no data yet.</p>"
             else:
-                card_html += "<p>💧 Goal missed on this day. Keep trying — tomorrow is new!</p>"
-
-            card_html += "<div><span class='close-btn' onclick=\"history.replaceState(null, '', window.location.pathname);\">Close</span></div>"
+                card_html += "<p style='margin:0; font-size:14px; color:#333;'>💧 Goal missed on this day. Keep trying — tomorrow is new!</p>"
+                
+            card_html += "<div><span class='close-btn' style='display:inline-block; margin-top:10px; color:#1A73E8; text-decoration:none; font-weight:600; cursor:pointer;' onclick=\"history.replaceState(null, '', window.location.pathname);\">Close</span></div>"
             card_html += "</div>"
-
+            
             js_hide_on_scroll = """
             <script>
             (function(){
@@ -742,16 +793,24 @@ elif st.session_state.page == "daily_streak":
             })();
             </script>
             """
-
+            
             st.markdown(card_html + js_hide_on_scroll, unsafe_allow_html=True)
         except Exception:
             pass
 
     st.write("---")
+    
+    # Keep small monthly summary and streak number (unchanged)
+    completed_dates_in_month = sorted([d for d in completed_dates if d.year == year and d.month == month])
+    completed_days_numbers = [d.day for d in completed_dates_in_month]
+    
+    last_completed_day_num = max(completed_days_numbers) if completed_days_numbers else None
+
     st.markdown(f"<h2 style='text-align:center; color:#1A73E8;'>🔥 Daily Streak: {current_streak} Days</h2>", unsafe_allow_html=True)
     st.write("---")
-
+    
     col1, col2, col3, col4, col5 = st.columns(5)
+    
     with col1:
         if st.button("🏠 Home"):
             go_to_page("home")
@@ -768,11 +827,7 @@ elif st.session_state.page == "daily_streak":
         st.info("You're on Daily Streak")
 
 # -------------------------------
-# End of flow - fallback
+# End of App
 # -------------------------------
-else:
-    st.error("Unknown page. Resetting to login.")
-    st.session_state.page = "login"
-    st.session_state.logged_in = False
-    st.session_state.username = ""
-    st.experimental_rerun()
+
+
