@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 
 # -------------------------------
 # ✅ Load API key from .env or Streamlit Secrets
+# (LEFT AS-IS PER YOUR REQUEST — do not change)
 # -------------------------------
 api_key = None
 if "GOOGLE_API_KEY" in st.secrets:
@@ -35,64 +36,77 @@ else:
 st.set_page_config(page_title="HP PARTNER", page_icon="💧", layout="centered")
 
 # -------------------------------
-# File setup (user_data.json and users.json auto-created)
+# Files and safe loading functions
 # -------------------------------
 CREDENTIALS_FILE = "users.json"
 USER_DATA_FILE = "user_data.json"
 
-# Load credentials (usernames/passwords)
-if os.path.exists(CREDENTIALS_FILE):
-    with open(CREDENTIALS_FILE, "r") as f:
+def load_json_file_safe(filepath, default):
+    """Load JSON file safely; if missing or invalid, create/return default."""
+    if not os.path.exists(filepath):
         try:
-            users = json.load(f)
+            with open(filepath, "w") as f:
+                json.dump(default, f, indent=4, sort_keys=True)
         except Exception:
-            users = {}
-else:
-    users = {}
-    with open(CREDENTIALS_FILE, "w") as f:
-        json.dump(users, f, indent=4, sort_keys=True)
-
-# Load user_data (profiles, water_profile, streak, daily_intake, weekly_data etc.)
-if os.path.exists(USER_DATA_FILE):
-    with open(USER_DATA_FILE, "r") as f:
+            pass
+        return default.copy()
+    try:
+        with open(filepath, "r") as f:
+            return json.load(f)
+    except Exception:
+        # if corrupted, back up the file and return default
         try:
-            user_data = json.load(f)
+            os.rename(filepath, filepath + ".bak")
         except Exception:
-            user_data = {}
-else:
-    user_data = {}
-    with open(USER_DATA_FILE, "w") as f:
-        json.dump(user_data, f, indent=4, sort_keys=True)
+            pass
+        with open(filepath, "w") as f:
+            json.dump(default, f, indent=4, sort_keys=True)
+        return default.copy()
 
-# -------------------------------
-# Helper Functions
-# -------------------------------
-def save_user_data(data):
-    with open(USER_DATA_FILE, "w") as f:
+def save_json_file_safe(filepath, data):
+    """Atomically save JSON data."""
+    tmp_path = filepath + ".tmp"
+    with open(tmp_path, "w") as f:
         json.dump(data, f, indent=4, sort_keys=True)
+    os.replace(tmp_path, filepath)
 
+# Load files into in-memory dicts
+users = load_json_file_safe(CREDENTIALS_FILE, {})
+user_data = load_json_file_safe(USER_DATA_FILE, {})
+
+# -------------------------------
+# Helper save functions
+# -------------------------------
 def save_credentials(creds):
-    with open(CREDENTIALS_FILE, "w") as f:
-        json.dump(creds, f, indent=4, sort_keys=True)
+    # write the users map to file
+    save_json_file_safe(CREDENTIALS_FILE, creds)
 
+def save_user_data(data):
+    save_json_file_safe(USER_DATA_FILE, data)
+
+# -------------------------------
+# Helper functions for user data structure and weekly/daily handling
+# -------------------------------
 def go_to_page(page_name: str):
     st.session_state.page = page_name
     st.rerun()
 
 def ensure_user_structures(username: str):
     """
-    Ensure the expected keys exist for the given user in user_data.
-    Creates defaults if missing.
+    Ensure expected keys exist for the given user in user_data.
+    Does not overwrite existing keys — only sets defaults when missing.
     """
-    user_data.setdefault(username, {})
-    user_data[username].setdefault("profile", {})
-    user_data[username].setdefault("ai_water_goal", 2.5)
-    user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
-    user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
-    # daily_intake stores per-date liters and 'last_login_date' metadata
-    user_data[username].setdefault("daily_intake", {})
-    # weekly_data stores the current week's start date (Monday) and a 'days' map of date->liters
-    user_data[username].setdefault("weekly_data", {"week_start": None, "days": {}})
+    if username not in user_data:
+        user_data[username] = {}
+    user = user_data[username]
+    user.setdefault("profile", {})
+    user.setdefault("ai_water_goal", 2.5)
+    user.setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
+    user.setdefault("streak", {"completed_days": [], "current_streak": 0})
+    user.setdefault("daily_intake", {})   # date -> liters, plus last_login_date meta
+    user.setdefault("weekly_data", {"week_start": None, "days": {}})  # week_start (Mon), days map
+    # Save any new defaults immediately so file is consistent
+    save_user_data(user_data)
 
 def current_week_start(d: date = None) -> date:
     if d is None:
@@ -101,56 +115,54 @@ def current_week_start(d: date = None) -> date:
 
 def ensure_week_current(username: str):
     """
-    Ensure user's weekly_data is for the current week. If not, reset weekly_data for the new week.
-    This ensures weekly progress persists throughout the week and only resets on Monday.
+    If weekly_data.week_start differs from current week's Monday, reset weekly_data.days
+    (this resets only when a new Monday arrives).
     """
     ensure_user_structures(username)
     weekly = user_data[username].setdefault("weekly_data", {"week_start": None, "days": {}})
     this_week_start = current_week_start()
     this_week_start_str = this_week_start.strftime("%Y-%m-%d")
-
     if weekly.get("week_start") != this_week_start_str:
-        # Start a fresh week (preserve nothing from previous week)
+        # Start a new week (clear only weekly days, keep profile/streak/daily_intake)
         weekly["week_start"] = this_week_start_str
-        weekly["days"] = {}  # will store date->liters for Mon..Sun
+        weekly["days"] = {}
         save_user_data(user_data)
 
 def load_today_intake_into_session(username: str):
     """
-    Load today's intake into session_state.total_intake.
-    If the user's 'last_login_date' is not today, reset today's intake to 0.0 automatically.
+    Loads today's intake into st.session_state.total_intake.
+    If last_login_date != today, create today's entry and set session total to 0.0 (auto-reset).
+    This function does NOT delete user profile or credentials.
     """
-    today_str = date.today().strftime("%Y-%m-%d")
     ensure_user_structures(username)
+    today_str = date.today().strftime("%Y-%m-%d")
     daily = user_data[username].setdefault("daily_intake", {})
     last_login = daily.get("last_login_date")
-
     if last_login != today_str:
-        # it's a new day for this user — reset today's intake
+        # New day: set today's intake to 0.0, but do not remove other historical daily_intake entries
         daily["last_login_date"] = today_str
-        daily[today_str] = 0.0
+        daily.setdefault(today_str, 0.0)
         save_user_data(user_data)
         st.session_state.total_intake = 0.0
-        # also clear session log so the UI matches a new day
+        # ephemeral session log resets
         st.session_state.water_intake_log = []
     else:
-        # load existing value for today (or 0.0 if missing)
         st.session_state.total_intake = float(daily.get(today_str, 0.0))
-        # session log remains ephemeral
 
 def update_weekly_record_on_add(username: str, date_str: str, liters: float):
     """
-    When the user updates today's intake, also write that value into weekly_data['days'] for the current week.
+    Update weekly_data.days[date_str] = liters for the current week.
+    This persists the day's total so the weekly graph remains even after a new day's auto-reset.
     """
     ensure_user_structures(username)
     ensure_week_current(username)
     weekly = user_data[username]["weekly_data"]
-    # we store the latest liters value for that date
-    weekly["days"][date_str] = liters
+    weekly_days = weekly.setdefault("days", {})
+    weekly_days[date_str] = liters
     save_user_data(user_data)
 
 # -------------------------------
-# Streamlit session setup
+# Streamlit session initialization
 # -------------------------------
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -168,7 +180,7 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 # -------------------------------
-# Utility: country list
+# Country list utility
 # -------------------------------
 countries = [c.name for c in pycountry.countries]
 
@@ -184,41 +196,50 @@ if st.session_state.page == "login":
     password = st.text_input("Enter Password", type="password")
 
     if st.button("Submit"):
+        # Reload users & user_data from disk to minimize race conditions on hosted platforms
+        # (keeps the latest state if files were updated externally)
+        users = load_json_file_safe(CREDENTIALS_FILE, {})
+        user_data = load_json_file_safe(USER_DATA_FILE, {})
+
         if option == "Sign Up":
             if username in users:
                 st.error("❌ Username already exists.")
             elif username == "" or password == "":
                 st.error("❌ Username and password cannot be empty.")
             else:
+                # Save credentials
                 users[username] = password
                 save_credentials(users)
 
-                # Initialize user_data for the new user
-                user_data.setdefault(username, {})
-                user_data[username]["profile"] = {}
+                # Initialize user_data for the new user without touching other users
+                if username not in user_data:
+                    user_data[username] = {}
+                user_data[username].setdefault("profile", {})
                 user_data[username]["ai_water_goal"] = 2.5
                 user_data[username]["water_profile"] = {"daily_goal": 2.5, "frequency": "30 minutes"}
                 user_data[username]["streak"] = {"completed_days": [], "current_streak": 0}
                 user_data[username]["daily_intake"] = {}
-                # default last_login_date to yesterday so the first real login will set today's intake to 0
+                # default last_login_date to yesterday so first login triggers today's setup
                 yesterday_str = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
                 user_data[username]["daily_intake"]["last_login_date"] = yesterday_str
-                # set weekly_data to the current week start (but empty)
                 user_data[username]["weekly_data"] = {"week_start": None, "days": {}}
                 save_user_data(user_data)
+
                 st.success("✅ Account created successfully! Please login.")
         
         elif option == "Login":
+            # Check credentials
             if username in users and users[username] == password:
                 st.session_state.logged_in = True
                 st.session_state.username = username
-                # Ensure structures and load today's intake + weekly
+
+                # Ensure user_data structures and load today's intake (this won't overwrite profile)
                 ensure_user_structures(username)
                 load_today_intake_into_session(username)
                 ensure_week_current(username)
 
-                # Decide where to go: profile set? -> home : settings
-                if username in user_data and "profile" in user_data[username] and user_data[username]["profile"]:
+                # Navigate where profile exists or not
+                if username in user_data and user_data[username].get("profile"):
                     go_to_page("home")
                 else:
                     go_to_page("settings")
@@ -226,7 +247,7 @@ if st.session_state.page == "login":
                 st.error("❌ Invalid username or password.")
 
 # -------------------------------
-# PERSONAL SETTINGS PAGE
+# PERSONAL SETTINGS PAGE (unchanged behaviour)
 # -------------------------------
 elif st.session_state.page == "settings":
     if not st.session_state.logged_in:
@@ -331,7 +352,8 @@ elif st.session_state.page == "settings":
             suggested_water_intake = user_data.get(username, {}).get("ai_water_goal", 2.5)
             text_output = "Profile unchanged — using previous goal."
             
-        user_data[username] = user_data.get(username, {})
+        # Update user_data.profile and related fields without wiping other data
+        ensure_user_structures(username)
         user_data[username]["profile"] = new_profile_data
         user_data[username]["ai_water_goal"] = round(suggested_water_intake, 2)
         user_data[username].setdefault("water_profile", {"daily_goal": suggested_water_intake, "frequency": "30 minutes"})
@@ -376,7 +398,7 @@ elif st.session_state.page == "water_profile":
         go_to_page("home")
 
 # -------------------------------
-# HOME PAGE
+# HOME PAGE (persistent bottle + auto-reset at midnight)
 # -------------------------------
 elif st.session_state.page == "home":
     if not st.session_state.logged_in:
@@ -387,9 +409,9 @@ elif st.session_state.page == "home":
     today_dt = date.today()
     today_str = today_dt.strftime("%Y-%m-%d")
 
-    # Load / auto-reset today's intake for this user
+    # Load / auto-reset today's intake for this user (doesn't wipe profile)
     load_today_intake_into_session(username)
-    # Ensure weekly record exists for the current week and hasn't been auto-cleared midweek
+    # Ensure weekly record exists and is for current week
     ensure_week_current(username)
 
     daily_goal = user_data.get(username, {}).get("water_profile", {}).get(
@@ -424,21 +446,21 @@ elif st.session_state.page == "home":
                 st.session_state.water_intake_log.append(f"{ml} ml")
                 st.success(f"✅ Added {ml} ml of water!")
                 
-                # ✅ Save today's total intake persistently
-                user_data.setdefault(username, {})
-                user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
-                user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
+                # Persist today's total intake (only update daily_intake and weekly_data)
+                ensure_user_structures(username)
                 user_data[username].setdefault("daily_intake", {})
                 user_data[username].setdefault("weekly_data", {"week_start": None, "days": {}})
+                user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
+                user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
 
-                # persist daily intake
+                # Save today's intake without wiping other user fields
                 user_data[username]["daily_intake"][today_str] = st.session_state.total_intake
                 user_data[username]["daily_intake"]["last_login_date"] = today_str
 
-                # update weekly record for current week
+                # Also update weekly_data so the weekly graph remains
                 update_weekly_record_on_add(username, today_str, st.session_state.total_intake)
 
-                # ✅ Update daily streak data when user meets their goal
+                # Update streak info (unchanged logic)
                 user_streak = user_data[username]["streak"]
                 daily_goal_for_checks = user_data[username]["water_profile"].get("daily_goal", 2.5)
                 
@@ -461,9 +483,10 @@ elif st.session_state.page == "home":
                         user_streak["current_streak"] = streak
                         user_data[username]["streak"] = user_streak
 
+                # Save user_data after modifications
                 save_user_data(user_data)
                 
-                # Rerun to refresh UI (bottle, report, etc.)
+                # Rerun to refresh UI
                 st.rerun()
                 st.stop()
                 
@@ -495,16 +518,14 @@ elif st.session_state.page == "home":
             go_to_page("daily_streak")
     with col5:
         if st.button("🚪 Logout"):
-            # clear session data and go to login
+            # clear session-only state, keep files intact
             st.session_state.logged_in = False
             st.session_state.username = ""
             st.session_state.total_intake = 0.0
             st.session_state.water_intake_log = []
             go_to_page("login")
 
-    # -------------------------------
-    # 🤖 Water Buddy Chatbot Popup
-    # -------------------------------
+    # Chatbot (unchanged)
     st.markdown("""
     <style>
     .chat-button {
@@ -587,10 +608,8 @@ elif st.session_state.page == "home":
                     st.session_state.chat_history.append({"sender": "bot", "text": reply})
                     st.rerun()
 
-            st.markdown("</div>", unsafe_allow_html=True)
-
 # -------------------------------
-# REPORT PAGE
+# REPORT PAGE (uses weekly_data persisted until next Monday)
 # -------------------------------
 elif st.session_state.page == "report":
     if not st.session_state.logged_in:
@@ -600,10 +619,9 @@ elif st.session_state.page == "report":
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>📊 Hydration Report</h1>", unsafe_allow_html=True)
     st.write("---")
 
-    # Ensure user structures exist and weekly is current
+    # Ensure user structures exist and weekly data is current
     ensure_user_structures(username)
     ensure_week_current(username)
-    save_user_data(user_data)
 
     # Prepare completed dates from streak
     completed_iso = user_data[username]["streak"].get("completed_days", [])
@@ -618,9 +636,7 @@ elif st.session_state.page == "report":
     today = date.today()
     daily_goal = user_data[username]["water_profile"].get("daily_goal", user_data[username].get("ai_water_goal", 2.5))
 
-    # -------------------------------
-    # Section: Today's progress gauge
-    # -------------------------------
+    # Today's gauge (unchanged)
     if today in completed_dates:
         today_pct = 100
     else:
@@ -663,27 +679,22 @@ elif st.session_state.page == "report":
         st.info("🎯 Not started yet — let's drink some water and get moving!")
 
     st.write("---")
-    
-    # -------------------------------
-    # Section: Weekly (Mon -> Sun) - CURRENT WEEK ONLY
-    # -------------------------------
-    st.markdown("### Weekly Progress (Mon → Sun) — Current Week")
 
-    # Use the weekly_data stored for this user (ensured current by ensure_week_current)
+    # Weekly (Mon -> Sun) using persisted weekly_data
+    st.markdown("### Weekly Progress (Mon → Sun) — Current Week")
     weekly = user_data[username].get("weekly_data", {"week_start": None, "days": {}})
     week_start_str = weekly.get("week_start")
     if not week_start_str:
-        # fallback (shouldn't happen because ensure_week_current was called)
         week_start_dt = current_week_start()
         week_start_str = week_start_dt.strftime("%Y-%m-%d")
         weekly["week_start"] = week_start_str
+        save_user_data(user_data)
 
     week_start_dt = datetime.strptime(week_start_str, "%Y-%m-%d").date()
     week_days = [week_start_dt + timedelta(days=i) for i in range(7)]
     labels = [d.strftime("%a\n%d %b") for d in week_days]
-
-    # Get liters for each day from weekly['days'], if missing -> 0
     week_days_str = [d.strftime("%Y-%m-%d") for d in week_days]
+
     liters_list = []
     pct_list = []
     status_list = []
@@ -691,7 +702,7 @@ elif st.session_state.page == "report":
     for d_str, d in zip(week_days_str, week_days):
         liters = weekly.get("days", {}).get(d_str)
         if liters is None:
-            # if it's today, try to use session value (so the chart is live)
+            # if it's today, show session value; otherwise 0
             if d == today:
                 liters = st.session_state.total_intake
             else:
@@ -715,17 +726,16 @@ elif st.session_state.page == "report":
 
     def week_color_for_status(s):
         if s == "achieved":
-            return "#1A73E8"  # bright blue
+            return "#1A73E8"
         if s == "almost":
-            return "#FFD23F"  # yellow
+            return "#FFD23F"
         if s == "partial":
-            return "#FFD9A6"  # light
+            return "#FFD9A6"
         if s == "upcoming":
-            return "rgba(255,255,255,0.06)" # faded
-        return "#FF6B6B"   # missed red
+            return "rgba(255,255,255,0.06)"
+        return "#FF6B6B"
 
     colors = [week_color_for_status(s) for s in status_list]
-
     df_week = pd.DataFrame({"label": labels, "pct": pct_list, "liters": liters_list, "status": status_list})
 
     fig_week = go.Figure()
@@ -738,11 +748,9 @@ elif st.session_state.page == "report":
         hovertemplate="%{x}<br>%{y}%<br>Liters: %{customdata} L<extra></extra>",
         customdata=[round(v,2) for v in df_week["liters"]]
     ))
-
     fig_week.update_layout(yaxis={'title': 'Completion %', 'range': [0, 100]}, showlegend=False,
                             margin=dict(l=20, r=20, t=20, b=40), height=340,
                             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-
     st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
     # Summary counts for days up to today
@@ -752,14 +760,11 @@ elif st.session_state.page == "report":
 
     st.write("---")
 
-    # -------------------------------
-    # Monthly stats (unchanged)
-    # -------------------------------
+    # Monthly stats unchanged
     year = today.year
     month = today.month
     days_in_month = calendar.monthrange(year, month)[1]
     month_dates = [date(year, month, d) for d in range(1, days_in_month + 1)]
-
     total_met = sum(1 for d in month_dates if (d in completed_dates) or (d == today and st.session_state.total_intake and st.session_state.total_intake >= daily_goal))
     total_days = len(month_dates)
 
@@ -780,7 +785,6 @@ elif st.session_state.page == "report":
         best_streak = 0
 
     st.write("---")
-
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         if st.button("🏠 Home"):
@@ -796,9 +800,9 @@ elif st.session_state.page == "report":
     with col5:
         if st.button("🔥 Daily Streak"):
             go_to_page("daily_streak")
-            
+
 # -------------------------------
-# DAILY STREAK PAGE
+# DAILY STREAK PAGE (unchanged)
 # -------------------------------
 elif st.session_state.page == "daily_streak":
     if not st.session_state.logged_in:
@@ -822,7 +826,7 @@ elif st.session_state.page == "daily_streak":
         except Exception:
             continue
 
-    # Build star-grid styles and HTML (showing date numbers inside each star)
+    # Star grid markup (unchanged)
     star_css = """
     <style>
     .star-grid {
@@ -873,7 +877,6 @@ elif st.session_state.page == "daily_streak":
     </style>
     """
 
-    # Generate stars HTML with date numbers and status classes
     stars_html = "<div class='star-grid'>"
     for d in range(1, days_in_month + 1):
         the_date = date(year, month, d)
@@ -883,13 +886,11 @@ elif st.session_state.page == "daily_streak":
         else:
             css_class = "achieved small" if the_date in completed_dates else "dim small"
         href = f"?selected_day={iso}"
-        # Put the day number inside the star
         stars_html += f"<a class='star {css_class}' href='{href}' title='Day {d}'>{d}</a>"
     stars_html += "</div>"
 
     st.markdown(star_css + stars_html, unsafe_allow_html=True)
 
-    # If a day is selected via query param, show slide card details
     query_params = st.experimental_get_query_params()
     selected_day_param = query_params.get("selected_day", [None])[0]
     if selected_day_param:
@@ -934,18 +935,13 @@ elif st.session_state.page == "daily_streak":
             pass
 
     st.write("---")
-    
-    # Keep small monthly summary and streak number (unchanged)
     completed_dates_in_month = sorted([d for d in completed_dates if d.year == year and d.month == month])
     completed_days_numbers = [d.day for d in completed_dates_in_month]
-    
     last_completed_day_num = max(completed_days_numbers) if completed_days_numbers else None
 
     st.markdown(f"<h2 style='text-align:center; color:#1A73E8;'>🔥 Daily Streak: {current_streak} Days</h2>", unsafe_allow_html=True)
     st.write("---")
-    
     col1, col2, col3, col4, col5 = st.columns(5)
-    
     with col1:
         if st.button("🏠 Home"):
             go_to_page("home")
