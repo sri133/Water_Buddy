@@ -35,11 +35,12 @@ else:
 st.set_page_config(page_title="HP PARTNER", page_icon="💧", layout="centered")
 
 # -------------------------------
-# File setup (user_data.json auto-created)
+# File setup (user_data.json and users.json auto-created)
 # -------------------------------
 CREDENTIALS_FILE = "users.json"
 USER_DATA_FILE = "user_data.json"
 
+# Load credentials (usernames/passwords)
 if os.path.exists(CREDENTIALS_FILE):
     with open(CREDENTIALS_FILE, "r") as f:
         try:
@@ -48,7 +49,10 @@ if os.path.exists(CREDENTIALS_FILE):
             users = {}
 else:
     users = {}
+    with open(CREDENTIALS_FILE, "w") as f:
+        json.dump(users, f, indent=4, sort_keys=True)
 
+# Load user_data (profiles, water_profile, streak, daily_intake, etc.)
 if os.path.exists(USER_DATA_FILE):
     with open(USER_DATA_FILE, "r") as f:
         try:
@@ -59,6 +63,58 @@ else:
     user_data = {}
     with open(USER_DATA_FILE, "w") as f:
         json.dump(user_data, f, indent=4, sort_keys=True)
+
+# -------------------------------
+# Helper Functions
+# -------------------------------
+def save_user_data(data):
+    with open(USER_DATA_FILE, "w") as f:
+        json.dump(data, f, indent=4, sort_keys=True)
+
+def save_credentials(creds):
+    with open(CREDENTIALS_FILE, "w") as f:
+        json.dump(creds, f, indent=4, sort_keys=True)
+
+def go_to_page(page_name: str):
+    st.session_state.page = page_name
+    st.rerun()
+
+def ensure_user_structures(username: str):
+    """
+    Ensure the expected keys exist for the given user in user_data.
+    Creates defaults if missing.
+    """
+    user_data.setdefault(username, {})
+    user_data[username].setdefault("profile", {})
+    user_data[username].setdefault("ai_water_goal", 2.5)
+    user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
+    user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
+    # daily_intake stores per-date liters and 'last_login_date' metadata
+    user_data[username].setdefault("daily_intake", {}) 
+
+def load_today_intake_into_session(username: str):
+    """
+    Load today's intake into session_state.total_intake.
+    If the user's 'last_login_date' is not today, reset today's intake to 0.0 automatically.
+    """
+    today_str = str(date.today())
+    ensure_user_structures(username)
+    daily = user_data[username].setdefault("daily_intake", {})
+    last_login = daily.get("last_login_date")
+
+    if last_login != today_str:
+        # it's a new day for this user — reset today's intake
+        daily["last_login_date"] = today_str
+        daily[today_str] = 0.0
+        save_user_data(user_data)
+        st.session_state.total_intake = 0.0
+        # also clear session log so the UI matches a new day
+        st.session_state.water_intake_log = []
+    else:
+        # load existing value for today (or 0.0 if missing)
+        st.session_state.total_intake = float(daily.get(today_str, 0.0))
+        # Optionally restore a light log entry to session_state from stored value (we keep session log ephemeral)
+        # For now the session log stays ephemeral during a browser session.
 
 # -------------------------------
 # Streamlit session setup
@@ -79,16 +135,8 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 # -------------------------------
-# Helper Functions
+# Utility: country list
 # -------------------------------
-def save_user_data(data):
-    with open(USER_DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4, sort_keys=True)
-
-def go_to_page(page_name: str):
-    st.session_state.page = page_name
-    st.rerun()
-
 countries = [c.name for c in pycountry.countries]
 
 # -------------------------------
@@ -110,14 +158,18 @@ if st.session_state.page == "login":
                 st.error("❌ Username and password cannot be empty.")
             else:
                 users[username] = password
-                with open(CREDENTIALS_FILE, "w") as f:
-                    json.dump(users, f, indent=4, sort_keys=True)
-                
-                user_data[username] = {}
+                save_credentials(users)
+
+                # Initialize user_data for the new user
+                user_data.setdefault(username, {})
                 user_data[username]["profile"] = {}
                 user_data[username]["ai_water_goal"] = 2.5
                 user_data[username]["water_profile"] = {"daily_goal": 2.5, "frequency": "30 minutes"}
                 user_data[username]["streak"] = {"completed_days": [], "current_streak": 0}
+                user_data[username]["daily_intake"] = {}
+                # set last_login_date to yesterday so first login sets today's intake to 0
+                yesterday_str = str(date.today() - timedelta(days=1))
+                user_data[username]["daily_intake"]["last_login_date"] = yesterday_str
                 save_user_data(user_data)
                 st.success("✅ Account created successfully! Please login.")
         
@@ -125,7 +177,11 @@ if st.session_state.page == "login":
             if username in users and users[username] == password:
                 st.session_state.logged_in = True
                 st.session_state.username = username
-                
+                # Ensure structures and load today's intake
+                ensure_user_structures(username)
+                load_today_intake_into_session(username)
+
+                # Decide where to go: profile set? -> home : settings
                 if username in user_data and "profile" in user_data[username] and user_data[username]["profile"]:
                     go_to_page("home")
                 else:
@@ -141,6 +197,7 @@ elif st.session_state.page == "settings":
         go_to_page("login")
 
     username = st.session_state.username
+    ensure_user_structures(username)
     saved = user_data.get(username, {}).get("profile", {})
     
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Personal Settings</h1>", unsafe_allow_html=True)
@@ -243,6 +300,7 @@ elif st.session_state.page == "settings":
         user_data[username]["ai_water_goal"] = round(suggested_water_intake, 2)
         user_data[username].setdefault("water_profile", {"daily_goal": suggested_water_intake, "frequency": "30 minutes"})
         user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
+        user_data[username].setdefault("daily_intake", user_data[username].get("daily_intake", {}))
         
         save_user_data(user_data)
         
@@ -254,10 +312,14 @@ elif st.session_state.page == "settings":
 # WATER INTAKE PAGE
 # -------------------------------
 elif st.session_state.page == "water_profile":
+    if not st.session_state.logged_in:
+        go_to_page("login")
+
     username = st.session_state.username
-    saved = user_data.get(username, {}).get("water_profile", {})
+    ensure_user_structures(username)
     ai_goal = user_data.get(username, {}).get("ai_water_goal", 2.5)
-    
+    saved = user_data.get(username, {}).get("water_profile", {})
+
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Intake</h1>", unsafe_allow_html=True)
     st.success(f"Your ideal daily water intake is **{ai_goal} L/day**, as suggested by Water Buddy 💧")
     
@@ -280,7 +342,16 @@ elif st.session_state.page == "water_profile":
 # HOME PAGE
 # -------------------------------
 elif st.session_state.page == "home":
+    if not st.session_state.logged_in:
+        go_to_page("login")
+
     username = st.session_state.username
+    ensure_user_structures(username)
+    today_str = str(date.today())
+
+    # Load / auto-reset today's intake for this user
+    load_today_intake_into_session(username)
+
     daily_goal = user_data.get(username, {}).get("water_profile", {}).get(
         "daily_goal", user_data.get(username, {}).get("ai_water_goal", 2.5)
     )
@@ -313,18 +384,20 @@ elif st.session_state.page == "home":
                 st.session_state.water_intake_log.append(f"{ml} ml")
                 st.success(f"✅ Added {ml} ml of water!")
                 
-                # ✅ Update daily streak data when user meets their goal
-                username = st.session_state.username
-                today_str = str(date.today())
-                
+                # ✅ Save today's total intake persistently
                 user_data.setdefault(username, {})
                 user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
                 user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
+                user_data[username].setdefault("daily_intake", {})
                 
+                user_data[username]["daily_intake"][today_str] = st.session_state.total_intake
+                user_data[username]["daily_intake"]["last_login_date"] = today_str
+
+                # ✅ Update daily streak data when user meets their goal
                 user_streak = user_data[username]["streak"]
-                daily_goal = user_data[username]["water_profile"].get("daily_goal", 2.5)
+                daily_goal_for_checks = user_data[username]["water_profile"].get("daily_goal", 2.5)
                 
-                if st.session_state.total_intake >= daily_goal:
+                if st.session_state.total_intake >= daily_goal_for_checks:
                     if today_str not in user_streak.get("completed_days", []):
                         user_streak.setdefault("completed_days", []).append(today_str)
                         user_streak["completed_days"] = sorted(list(set(user_streak["completed_days"])))
@@ -342,8 +415,10 @@ elif st.session_state.page == "home":
                         
                         user_streak["current_streak"] = streak
                         user_data[username]["streak"] = user_streak
-                        save_user_data(user_data)
+
+                save_user_data(user_data)
                 
+                # Rerun to refresh UI (bottle, report, etc.)
                 st.rerun()
                 st.stop()
                 
@@ -375,7 +450,11 @@ elif st.session_state.page == "home":
             go_to_page("daily_streak")
     with col5:
         if st.button("🚪 Logout"):
+            # clear session data and go to login
             st.session_state.logged_in = False
+            st.session_state.username = ""
+            st.session_state.total_intake = 0.0
+            st.session_state.water_intake_log = []
             go_to_page("login")
 
     # -------------------------------
@@ -466,17 +545,18 @@ elif st.session_state.page == "home":
             st.markdown("</div>", unsafe_allow_html=True)
 
 # -------------------------------
-# REPORT PAGE (updated behavior: removed star grid and legend)
+# REPORT PAGE
 # -------------------------------
 elif st.session_state.page == "report":
+    if not st.session_state.logged_in:
+        go_to_page("login")
+
     username = st.session_state.username
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>📊 Hydration Report</h1>", unsafe_allow_html=True)
     st.write("---")
 
     # Ensure user structures exist
-    user_data.setdefault(username, {})
-    user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
-    user_data[username].setdefault("water_profile", {"daily_goal": user_data.get(username, {}).get("ai_water_goal", 2.5), "frequency": "30 minutes"})
+    ensure_user_structures(username)
     save_user_data(user_data)
 
     completed_iso = user_data[username]["streak"].get("completed_days", [])
@@ -613,9 +693,6 @@ elif st.session_state.page == "report":
     almost_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "almost")
     missed_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "missed")
 
-   
-   
-
     # -------------------------------
     # Monthly stats
     # -------------------------------
@@ -662,18 +739,18 @@ elif st.session_state.page == "report":
             go_to_page("daily_streak")
             
 # -------------------------------
-# DAILY STREAK PAGE (REPLACED: star grid here; no title/legend)
+# DAILY STREAK PAGE
 # -------------------------------
 elif st.session_state.page == "daily_streak":
+    if not st.session_state.logged_in:
+        go_to_page("login")
+
     username = st.session_state.username
     today = date.today()
     year, month = today.year, today.month
     days_in_month = calendar.monthrange(year, month)[1]
 
-    if username not in user_data:
-        user_data[username] = {}
-        
-    user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
+    ensure_user_structures(username)
     streak_info = user_data[username].get("streak", {"completed_days": [], "current_streak": 0})
     completed_iso = streak_info.get("completed_days", [])
     current_streak = streak_info.get("current_streak", 0)
@@ -753,7 +830,7 @@ elif st.session_state.page == "daily_streak":
 
     st.markdown(star_css + stars_html, unsafe_allow_html=True)
 
-    # If a day is selected via query param, show slide card details (same UX as before)
+    # If a day is selected via query param, show slide card details
     query_params = st.experimental_get_query_params()
     selected_day_param = query_params.get("selected_day", [None])[0]
     if selected_day_param:
@@ -828,5 +905,3 @@ elif st.session_state.page == "daily_streak":
 # -------------------------------
 # End of App
 # -------------------------------
-
-
