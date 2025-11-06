@@ -52,7 +52,7 @@ else:
     with open(CREDENTIALS_FILE, "w") as f:
         json.dump(users, f, indent=4, sort_keys=True)
 
-# Load user_data (profiles, water_profile, streak, daily_intake, etc.)
+# Load user_data (profiles, water_profile, streak, daily_intake, weekly_data etc.)
 if os.path.exists(USER_DATA_FILE):
     with open(USER_DATA_FILE, "r") as f:
         try:
@@ -90,14 +90,37 @@ def ensure_user_structures(username: str):
     user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
     user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
     # daily_intake stores per-date liters and 'last_login_date' metadata
-    user_data[username].setdefault("daily_intake", {}) 
+    user_data[username].setdefault("daily_intake", {})
+    # weekly_data stores the current week's start date (Monday) and a 'days' map of date->liters
+    user_data[username].setdefault("weekly_data", {"week_start": None, "days": {}})
+
+def current_week_start(d: date = None) -> date:
+    if d is None:
+        d = date.today()
+    return d - timedelta(days=d.weekday())  # Monday
+
+def ensure_week_current(username: str):
+    """
+    Ensure user's weekly_data is for the current week. If not, reset weekly_data for the new week.
+    This ensures weekly progress persists throughout the week and only resets on Monday.
+    """
+    ensure_user_structures(username)
+    weekly = user_data[username].setdefault("weekly_data", {"week_start": None, "days": {}})
+    this_week_start = current_week_start()
+    this_week_start_str = this_week_start.strftime("%Y-%m-%d")
+
+    if weekly.get("week_start") != this_week_start_str:
+        # Start a fresh week (preserve nothing from previous week)
+        weekly["week_start"] = this_week_start_str
+        weekly["days"] = {}  # will store date->liters for Mon..Sun
+        save_user_data(user_data)
 
 def load_today_intake_into_session(username: str):
     """
     Load today's intake into session_state.total_intake.
     If the user's 'last_login_date' is not today, reset today's intake to 0.0 automatically.
     """
-    today_str = str(date.today())
+    today_str = date.today().strftime("%Y-%m-%d")
     ensure_user_structures(username)
     daily = user_data[username].setdefault("daily_intake", {})
     last_login = daily.get("last_login_date")
@@ -113,8 +136,18 @@ def load_today_intake_into_session(username: str):
     else:
         # load existing value for today (or 0.0 if missing)
         st.session_state.total_intake = float(daily.get(today_str, 0.0))
-        # Optionally restore a light log entry to session_state from stored value (we keep session log ephemeral)
-        # For now the session log stays ephemeral during a browser session.
+        # session log remains ephemeral
+
+def update_weekly_record_on_add(username: str, date_str: str, liters: float):
+    """
+    When the user updates today's intake, also write that value into weekly_data['days'] for the current week.
+    """
+    ensure_user_structures(username)
+    ensure_week_current(username)
+    weekly = user_data[username]["weekly_data"]
+    # we store the latest liters value for that date
+    weekly["days"][date_str] = liters
+    save_user_data(user_data)
 
 # -------------------------------
 # Streamlit session setup
@@ -167,9 +200,11 @@ if st.session_state.page == "login":
                 user_data[username]["water_profile"] = {"daily_goal": 2.5, "frequency": "30 minutes"}
                 user_data[username]["streak"] = {"completed_days": [], "current_streak": 0}
                 user_data[username]["daily_intake"] = {}
-                # set last_login_date to yesterday so first login sets today's intake to 0
-                yesterday_str = str(date.today() - timedelta(days=1))
+                # default last_login_date to yesterday so the first real login will set today's intake to 0
+                yesterday_str = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
                 user_data[username]["daily_intake"]["last_login_date"] = yesterday_str
+                # set weekly_data to the current week start (but empty)
+                user_data[username]["weekly_data"] = {"week_start": None, "days": {}}
                 save_user_data(user_data)
                 st.success("✅ Account created successfully! Please login.")
         
@@ -177,9 +212,10 @@ if st.session_state.page == "login":
             if username in users and users[username] == password:
                 st.session_state.logged_in = True
                 st.session_state.username = username
-                # Ensure structures and load today's intake
+                # Ensure structures and load today's intake + weekly
                 ensure_user_structures(username)
                 load_today_intake_into_session(username)
+                ensure_week_current(username)
 
                 # Decide where to go: profile set? -> home : settings
                 if username in user_data and "profile" in user_data[username] and user_data[username]["profile"]:
@@ -301,6 +337,7 @@ elif st.session_state.page == "settings":
         user_data[username].setdefault("water_profile", {"daily_goal": suggested_water_intake, "frequency": "30 minutes"})
         user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
         user_data[username].setdefault("daily_intake", user_data[username].get("daily_intake", {}))
+        user_data[username].setdefault("weekly_data", user_data[username].get("weekly_data", {"week_start": None, "days": {}}))
         
         save_user_data(user_data)
         
@@ -347,10 +384,13 @@ elif st.session_state.page == "home":
 
     username = st.session_state.username
     ensure_user_structures(username)
-    today_str = str(date.today())
+    today_dt = date.today()
+    today_str = today_dt.strftime("%Y-%m-%d")
 
     # Load / auto-reset today's intake for this user
     load_today_intake_into_session(username)
+    # Ensure weekly record exists for the current week and hasn't been auto-cleared midweek
+    ensure_week_current(username)
 
     daily_goal = user_data.get(username, {}).get("water_profile", {}).get(
         "daily_goal", user_data.get(username, {}).get("ai_water_goal", 2.5)
@@ -389,9 +429,14 @@ elif st.session_state.page == "home":
                 user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
                 user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
                 user_data[username].setdefault("daily_intake", {})
-                
+                user_data[username].setdefault("weekly_data", {"week_start": None, "days": {}})
+
+                # persist daily intake
                 user_data[username]["daily_intake"][today_str] = st.session_state.total_intake
                 user_data[username]["daily_intake"]["last_login_date"] = today_str
+
+                # update weekly record for current week
+                update_weekly_record_on_add(username, today_str, st.session_state.total_intake)
 
                 # ✅ Update daily streak data when user meets their goal
                 user_streak = user_data[username]["streak"]
@@ -555,10 +600,12 @@ elif st.session_state.page == "report":
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>📊 Hydration Report</h1>", unsafe_allow_html=True)
     st.write("---")
 
-    # Ensure user structures exist
+    # Ensure user structures exist and weekly is current
     ensure_user_structures(username)
+    ensure_week_current(username)
     save_user_data(user_data)
 
+    # Prepare completed dates from streak
     completed_iso = user_data[username]["streak"].get("completed_days", [])
     completed_dates = []
     for s in completed_iso:
@@ -618,42 +665,52 @@ elif st.session_state.page == "report":
     st.write("---")
     
     # -------------------------------
-    # Section: Weekly (Mon -> Sun)
+    # Section: Weekly (Mon -> Sun) - CURRENT WEEK ONLY
     # -------------------------------
-    st.markdown("### Weekly Progress (Mon → Sun)")
-    
-    monday = today - timedelta(days=today.weekday()) # Monday of this week
-    week_days = [monday + timedelta(days=i) for i in range(7)]
+    st.markdown("### Weekly Progress (Mon → Sun) — Current Week")
+
+    # Use the weekly_data stored for this user (ensured current by ensure_week_current)
+    weekly = user_data[username].get("weekly_data", {"week_start": None, "days": {}})
+    week_start_str = weekly.get("week_start")
+    if not week_start_str:
+        # fallback (shouldn't happen because ensure_week_current was called)
+        week_start_dt = current_week_start()
+        week_start_str = week_start_dt.strftime("%Y-%m-%d")
+        weekly["week_start"] = week_start_str
+
+    week_start_dt = datetime.strptime(week_start_str, "%Y-%m-%d").date()
+    week_days = [week_start_dt + timedelta(days=i) for i in range(7)]
     labels = [d.strftime("%a\n%d %b") for d in week_days]
-    
+
+    # Get liters for each day from weekly['days'], if missing -> 0
+    week_days_str = [d.strftime("%Y-%m-%d") for d in week_days]
+    liters_list = []
     pct_list = []
     status_list = []
 
-    for d in week_days:
+    for d_str, d in zip(week_days_str, week_days):
+        liters = weekly.get("days", {}).get(d_str)
+        if liters is None:
+            # if it's today, try to use session value (so the chart is live)
+            if d == today:
+                liters = st.session_state.total_intake
+            else:
+                liters = 0.0
+        liters_list.append(liters)
+        pct = min(round((liters / daily_goal) * 100), 100) if daily_goal > 0 else 0
+        pct_list.append(pct)
+
         if d > today:
-            # future day
-            pct = 0
             status = "upcoming"
         else:
-            if d in completed_dates:
-                pct = 100
+            if pct >= 100:
                 status = "achieved"
+            elif pct >= 75:
+                status = "almost"
+            elif pct > 0:
+                status = "partial"
             else:
-                # for today, take partial progress
-                if d == today and st.session_state.total_intake:
-                    pct = min(round(st.session_state.total_intake / daily_goal * 100), 100)
-                    if pct >= 100:
-                        status = "achieved"
-                    elif pct >= 75:
-                        status = "almost"
-                    elif pct > 0:
-                        status = "partial"
-                    else:
-                        status = "missed"
-                else:
-                    pct = 0
-                    status = "missed"
-        pct_list.append(pct)
+                status = "missed"
         status_list.append(status)
 
     def week_color_for_status(s):
@@ -668,8 +725,9 @@ elif st.session_state.page == "report":
         return "#FF6B6B"   # missed red
 
     colors = [week_color_for_status(s) for s in status_list]
-    df_week = pd.DataFrame({"label": labels, "pct": pct_list, "status": status_list})
-    
+
+    df_week = pd.DataFrame({"label": labels, "pct": pct_list, "liters": liters_list, "status": status_list})
+
     fig_week = go.Figure()
     fig_week.add_trace(go.Bar(
         x=df_week["label"],
@@ -677,24 +735,25 @@ elif st.session_state.page == "report":
         marker_color=colors,
         text=[f"{v}%" if v > 0 else "" for v in df_week["pct"]],
         textposition='outside',
-        hovertemplate="%{x}<br>%{y}%<extra></extra>"
+        hovertemplate="%{x}<br>%{y}%<br>Liters: %{customdata} L<extra></extra>",
+        customdata=[round(v,2) for v in df_week["liters"]]
     ))
-    
-    # Make y-range fixed to 0-100
+
     fig_week.update_layout(yaxis={'title': 'Completion %', 'range': [0, 100]}, showlegend=False,
                             margin=dict(l=20, r=20, t=20, b=40), height=340,
                             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
 
-    # Remove all interactive drag/zoom tools by disabling modebar and scrollZoom
     st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
-    
-    # ----- FIXED: Count only days up to today for the summary counts -----
+
+    # Summary counts for days up to today
     achieved_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "achieved")
     almost_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "almost")
     missed_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "missed")
 
+    st.write("---")
+
     # -------------------------------
-    # Monthly stats
+    # Monthly stats (unchanged)
     # -------------------------------
     year = today.year
     month = today.month
