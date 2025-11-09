@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 import calendar
 import plotly.graph_objects as go
+import sqlite3
+from typing import Dict, Any
 
 # -------------------------------
 # ✅ Load API key from .env or Streamlit Secrets
@@ -36,53 +38,97 @@ else:
 st.set_page_config(page_title="HP PARTNER", page_icon="💧", layout="centered")
 
 # -------------------------------
-# Files and safe loading functions
+# SQLite setup (replaces JSON files)
 # -------------------------------
-CREDENTIALS_FILE = "users.json"
-USER_DATA_FILE = "user_data.json"
+DB_PATH = "user_data.db"
 
-def load_json_file_safe(filepath, default):
-    """Load JSON file safely; if missing or invalid, create/return default."""
-    if not os.path.exists(filepath):
-        try:
-            with open(filepath, "w") as f:
-                json.dump(default, f, indent=4, sort_keys=True)
-        except Exception:
-            pass
-        return default.copy()
+# Use check_same_thread=False so Streamlit threads won't crash on db access
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+cursor = conn.cursor()
+
+# Create tables: credentials and userdata (store JSON as TEXT)
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS credentials (
+    username TEXT PRIMARY KEY,
+    password TEXT NOT NULL
+)
+""")
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS userdata (
+    username TEXT PRIMARY KEY,
+    data TEXT NOT NULL
+)
+""")
+conn.commit()
+
+def load_all_from_db() -> (Dict[str, str], Dict[str, Any]):
+    """Load credentials and user_data from sqlite into in-memory dicts."""
+    creds = {}
+    udata = {}
     try:
-        with open(filepath, "r") as f:
-            return json.load(f)
+        cursor.execute("SELECT username, password FROM credentials")
+        for row in cursor.fetchall():
+            creds[row[0]] = row[1]
     except Exception:
-        # if corrupted, back up the file and return default
-        try:
-            os.rename(filepath, filepath + ".bak")
-        except Exception:
-            pass
-        with open(filepath, "w") as f:
-            json.dump(default, f, indent=4, sort_keys=True)
-        return default.copy()
+        pass
+    try:
+        cursor.execute("SELECT username, data FROM userdata")
+        for row in cursor.fetchall():
+            try:
+                u = json.loads(row[1])
+            except Exception:
+                u = {}
+            udata[row[0]] = u
+    except Exception:
+        pass
+    return creds, udata
 
-def save_json_file_safe(filepath, data):
-    """Atomically save JSON data."""
-    tmp_path = filepath + ".tmp"
-    with open(tmp_path, "w") as f:
-        json.dump(data, f, indent=4, sort_keys=True)
-    os.replace(tmp_path, filepath)
+def save_credentials_to_db(creds: Dict[str, str]):
+    """Upsert all credentials into the db."""
+    try:
+        for username, password in creds.items():
+            cursor.execute("""
+            INSERT INTO credentials(username, password)
+            VALUES (?, ?)
+            ON CONFLICT(username) DO UPDATE SET password=excluded.password
+            """, (username, password))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
-# Load files into in-memory dicts
-users = load_json_file_safe(CREDENTIALS_FILE, {})
-user_data = load_json_file_safe(USER_DATA_FILE, {})
+def save_userdata_to_db(userdata: Dict[str, Any]):
+    """Upsert all userdata entries into the db as JSON strings."""
+    try:
+        for username, data in userdata.items():
+            json_text = json.dumps(data, indent=4, sort_keys=True)
+            cursor.execute("""
+            INSERT INTO userdata(username, data)
+            VALUES (?, ?)
+            ON CONFLICT(username) DO UPDATE SET data=excluded.data
+            """, (username, json_text))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+# Initialize in-memory dictionaries from DB
+users, user_data = load_all_from_db()
 
 # -------------------------------
-# Helper save functions
+# Helper save functions (use SQLite-backed versions)
 # -------------------------------
 def save_credentials(creds):
-    # write the users map to file
-    save_json_file_safe(CREDENTIALS_FILE, creds)
+    # update in-memory and persist to DB
+    global users
+    users = creds
+    save_credentials_to_db(creds)
 
 def save_user_data(data):
-    save_json_file_safe(USER_DATA_FILE, data)
+    # update in-memory and persist to DB
+    global user_data
+    user_data = data
+    save_userdata_to_db(data)
 
 # -------------------------------
 # Helper functions for user data structure and weekly/daily handling
@@ -105,7 +151,7 @@ def ensure_user_structures(username: str):
     user.setdefault("streak", {"completed_days": [], "current_streak": 0})
     user.setdefault("daily_intake", {})   # date -> liters, plus last_login_date meta
     user.setdefault("weekly_data", {"week_start": None, "days": {}})  # week_start (Mon), days map
-    # Save any new defaults immediately so file is consistent
+    # Save any new defaults immediately so DB is consistent
     save_user_data(user_data)
 
 def current_week_start(d: date = None) -> date:
@@ -196,10 +242,8 @@ if st.session_state.page == "login":
     password = st.text_input("Enter Password", type="password")
 
     if st.button("Submit"):
-        # Reload users & user_data from disk to minimize race conditions on hosted platforms
-        # (keeps the latest state if files were updated externally)
-        users = load_json_file_safe(CREDENTIALS_FILE, {})
-        user_data = load_json_file_safe(USER_DATA_FILE, {})
+        # Reload users & user_data from DB to minimize race conditions on hosted platforms
+        users, user_data = load_all_from_db()
 
         if option == "Sign Up":
             if username in users:
@@ -907,7 +951,7 @@ elif st.session_state.page == "daily_streak":
             card_html += f"<h4 style='margin:0 0 6px 0; font-size:16px;'>Day {sel_day_num} — {sel_date.strftime('%b %d, %Y')}</h4>"
             
             if status_txt == "achieved":
-                card_html += "<p style='margin:0; font-size:14px; color:#333;'>🎉 Goal completed on this day! Great job.</p>"
+                card_html += "<p.style='margin:0; font-size:14px; color:#333;'>🎉 Goal completed on this day! Great job.</p>"
             elif status_txt == "upcoming":
                 card_html += "<p style='margin:0; font-size:14px; color:#333;'>⏳ This day is upcoming — no data yet.</p>"
             else:
@@ -960,3 +1004,7 @@ elif st.session_state.page == "daily_streak":
 # -------------------------------
 # End of App
 # -------------------------------
+
+# Note: database connection remains open for app lifetime (Streamlit).
+# If you ever need to explicitly close it:
+# conn.close()
