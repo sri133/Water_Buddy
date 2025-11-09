@@ -38,9 +38,11 @@ else:
 st.set_page_config(page_title="HP PARTNER", page_icon="💧", layout="centered")
 
 # -------------------------------
-# SQLite setup (replaces JSON files)
+# SQLite setup (permanent file in data/)
 # -------------------------------
-DB_PATH = "user_data.db"
+DATA_DIR = "data"
+DB_PATH = os.path.join(DATA_DIR, "user_data.db")
+os.makedirs(DATA_DIR, exist_ok=True)
 
 # Use check_same_thread=False so Streamlit threads won't crash on db access
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
