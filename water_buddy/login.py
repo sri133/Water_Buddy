@@ -1,5 +1,8 @@
 # app.py
 # Full Water Buddy app with mascots and Quiz page (single-file)
+# ---- Modified: added reset button (bottom of pages except report/daily_streak),
+# ---- removed weather display but kept weather mascot image(7).png to appear 13:40-14:30,
+# ---- added notes on Login, Report, and Home pages.
 
 import streamlit as st
 import json
@@ -383,7 +386,7 @@ def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, st
             msg = ask_gemini_for_message(context, "⏰ Time for a sip! A quick drink will keep you on track for your daily goal.")
             return {"image": img, "message": msg, "id": "reminder"}
 
-        # Hot weather
+        # Hot weather -- keep logic but this will rarely be used now that Home weather display removed.
         if temp_c is not None and temp_c >= 40.0:
             for fname in ["image (7).png", "image (7).jpg", "image (7).jpeg"]:
                 img = build_image_url(fname)
@@ -589,6 +592,42 @@ def grade_quiz_and_explain(quiz, answers):
     return results, score
 
 # -------------------------------
+# RESET helper (clears user-entered inputs in session only)
+# -------------------------------
+def reset_page_inputs_session():
+    """
+    Clear session-only user inputs and ephemeral page-level values.
+    Do NOT modify database (user_data) or credentials. Only session-level entries cleared.
+    """
+    # Keys we will clear if present in session_state
+    keys_to_reset = [
+        "water_input", "total_intake", "water_intake_log",
+        "quiz_answers", "quiz_submitted", "quiz_results", "quiz_score", "daily_quiz", "daily_quiz_date",
+        "chat_input", "chat_history", "show_chatbot",
+        "last_goal_completed_at"
+    ]
+    for k in keys_to_reset:
+        if k in st.session_state:
+            # Reset sensible defaults
+            if isinstance(st.session_state[k], (int, float)):
+                st.session_state[k] = 0 if isinstance(st.session_state[k], int) else 0.0
+            elif isinstance(st.session_state[k], list):
+                st.session_state[k] = []
+            elif isinstance(st.session_state[k], dict):
+                st.session_state[k] = {}
+            else:
+                st.session_state[k] = None
+
+    # Keep logged_in, username, page intact.
+    # After clearing, ensure some defaults exist
+    if "total_intake" not in st.session_state or st.session_state.get("total_intake") is None:
+        st.session_state.total_intake = 0.0
+    if "water_intake_log" not in st.session_state or st.session_state.get("water_intake_log") is None:
+        st.session_state.water_intake_log = []
+    if "chat_history" not in st.session_state or st.session_state.get("chat_history") is None:
+        st.session_state.chat_history = []
+
+# -------------------------------
 # LOGIN PAGE
 # -------------------------------
 if st.session_state.page == "login":
@@ -596,8 +635,8 @@ if st.session_state.page == "login":
     st.markdown("### Login or Sign Up to Continue")
 
     option = st.radio("Choose Option", ["Login", "Sign Up"])
-    username = st.text_input("Enter Username")
-    password = st.text_input("Enter Password", type="password")
+    username = st.text_input("Enter Username", key="login_username")
+    password = st.text_input("Enter Password", type="password", key="login_password")
 
     if st.button("Submit"):
         users, user_data = load_all_from_db()
@@ -641,6 +680,18 @@ if st.session_state.page == "login":
     mascot = choose_mascot_and_message("login", st.session_state.username or "")
     render_mascot_inline(mascot)
 
+    # Login note (requested)
+    st.markdown(
+        '<p style="font-size:14px; color:gray;">If you don’t have an account, please sign up first, then change the option to Login and submit again so you can log in.</p>',
+        unsafe_allow_html=True
+    )
+
+    # Reset button (bottom) - clears page-level inputs
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🔄 Reset Page", key="reset_login"):
+        reset_page_inputs_session()
+        st.success("Page inputs cleared.")
+
 # -------------------------------
 # PERSONAL SETTINGS PAGE (unchanged behaviour)
 # -------------------------------
@@ -654,23 +705,25 @@ elif st.session_state.page == "settings":
     
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Personal Settings</h1>", unsafe_allow_html=True)
     
-    name = st.text_input("Name", value=saved.get("Name", username))
-    age = st.text_input("Age", value=saved.get("Age", ""))
-    country = st.selectbox("Country", countries, index=countries.index(saved.get("Country", "India")) if saved.get("Country") else countries.index("India"))
-    language = st.text_input("Language", value=saved.get("Language", ""))
+    name = st.text_input("Name", value=saved.get("Name", username), key="settings_name")
+    age = st.text_input("Age", value=saved.get("Age", ""), key="settings_age")
+    country = st.selectbox("Country", countries, index=countries.index(saved.get("Country", "India")) if saved.get("Country") else countries.index("India"), key="settings_country")
+    language = st.text_input("Language", value=saved.get("Language", ""), key="settings_language")
     
     st.write("---")
     
-    height_unit = st.radio("Height Unit", ["cm", "feet"], horizontal=True)
+    height_unit = st.radio("Height Unit", ["cm", "feet"], horizontal=True, key="settings_height_unit")
     height = st.number_input(
         f"Height ({height_unit})",
-        value=float(saved.get("Height", "0").split()[0]) if "Height" in saved else 0.0
+        value=float(saved.get("Height", "0").split()[0]) if "Height" in saved else 0.0,
+        key="settings_height"
     )
     
-    weight_unit = st.radio("Weight Unit", ["kg", "lbs"], horizontal=True)
+    weight_unit = st.radio("Weight Unit", ["kg", "lbs"], horizontal=True, key="settings_weight_unit")
     weight = st.number_input(
         f"Weight ({weight_unit})",
-        value=float(saved.get("Weight", "0").split()[0]) if "Weight" in saved else 0.0
+        value=float(saved.get("Weight", "0").split()[0]) if "Weight" in saved else 0.0,
+        key="settings_weight"
     )
 
     def calculate_bmi(weight, height, weight_unit, height_unit):
@@ -692,9 +745,10 @@ elif st.session_state.page == "settings":
     health_condition = st.radio(
         "Health condition", ["Excellent", "Fair", "Poor"],
         horizontal=True,
-        index=["Excellent", "Fair", "Poor"].index(saved.get("Health Condition", "Excellent"))
+        index=["Excellent", "Fair", "Poor"].index(saved.get("Health Condition", "Excellent")),
+        key="settings_health_condition"
     )
-    health_problems = st.text_area("Health problems", value=saved.get("Health Problems", ""))
+    health_problems = st.text_area("Health problems", value=saved.get("Health Problems", ""), key="settings_health_problems")
 
     st.write("---")
 
@@ -760,6 +814,12 @@ elif st.session_state.page == "settings":
         st.info(f"Water Buddy output: {text_output}")
         go_to_page("water_profile")
 
+    # Reset button (bottom)
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🔄 Reset Page", key="reset_settings"):
+        reset_page_inputs_session()
+        st.success("Page inputs cleared.")
+
 # -------------------------------
 # WATER INTAKE PAGE
 # -------------------------------
@@ -775,13 +835,14 @@ elif st.session_state.page == "water_profile":
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Intake</h1>", unsafe_allow_html=True)
     st.success(f"Your ideal daily water intake is **{ai_goal} L/day**, as suggested by Water Buddy 💧")
     
-    daily_goal = st.slider("Set your daily water goal (L):", 0.5, 10.0, float(ai_goal), 0.1)
+    daily_goal = st.slider("Set your daily water goal (L):", 0.5, 10.0, float(ai_goal), 0.1, key="water_profile_daily_goal")
     
     frequency_options = [f"{i} minutes" for i in range(5, 185, 5)]
     selected_frequency = st.selectbox(
         "🔔 Reminder Frequency:",
         frequency_options,
-        index=frequency_options.index(saved.get("frequency", "30 minutes"))
+        index=frequency_options.index(saved.get("frequency", "30 minutes")),
+        key="water_profile_frequency"
     )
     
     if st.button("💾 Save & Continue ➡️"):
@@ -789,6 +850,12 @@ elif st.session_state.page == "water_profile":
         save_user_data(user_data)
         st.success("✅ Water profile saved successfully!")
         go_to_page("home")
+
+    # Reset button (bottom)
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🔄 Reset Page", key="reset_water_profile"):
+        reset_page_inputs_session()
+        st.success("Page inputs cleared.")
 
 # -------------------------------
 # HOME PAGE (persistent bottle + auto-reset at midnight)
@@ -813,15 +880,23 @@ elif st.session_state.page == "home":
     
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
 
-    # NEW: show current temperature on Home page (uses same detection routine as mascot logic)
-    temp_c = read_current_temperature_c()
-    if temp_c is not None:
-        try:
-            st.markdown(f"<div style='text-align:center;'>🌡️ **Current Temperature:** {round(temp_c,1)} °C</div>", unsafe_allow_html=True)
-        except Exception:
-            st.write(f"🌡️ Current Temperature: {temp_c} °C")
-    else:
-        st.markdown(f"<div style='text-align:center;'>🌡️ **Current Temperature:** (unavailable)</div>", unsafe_allow_html=True)
+    # NOTE: Weather display removed per request. Instead: show the weather mascot image (image (7).png)
+    # only between 13:40 and 14:30 (Asia/Kolkata).
+    india_tz = pytz.timezone("Asia/Kolkata")
+    now_t = datetime.now(india_tz).time()
+    try:
+        if time_in_range(dtime(13, 40), dtime(14, 30), now_t):
+            # show weather mascot image in the same spot
+            try:
+                st.image(build_image_url("image (7).png"), width=160)
+            except Exception:
+                # fallback to local name or alternative extension if any
+                try:
+                    st.image(build_image_url("image (7).jpg"), width=160)
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
     fill_percent = min(st.session_state.total_intake / daily_goal, 1.0) if daily_goal > 0 else 0
     
@@ -1025,6 +1100,18 @@ elif st.session_state.page == "home":
     mascot = choose_mascot_and_message("home", username)
     render_mascot_inline(mascot)
 
+    # Home page note (requested)
+    st.markdown(
+        '<p style="font-size:14px; color:gray;">Use a calibrated water bottle to enter correct value of water intake. If needed, you can ask the Water Buddy chatbot for a buying link.</p>',
+        unsafe_allow_html=True
+    )
+
+    # Reset button (bottom) - clears session-level inputs only (not DB)
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🔄 Reset Page", key="reset_home"):
+        reset_page_inputs_session()
+        st.success("Page inputs cleared.")
+
 # -------------------------------
 # QUIZ PAGE
 # -------------------------------
@@ -1134,6 +1221,12 @@ elif st.session_state.page == "quiz":
     with col5:
         if st.button("🔥 Daily Streak"):
             go_to_page("daily_streak")
+
+    # Reset button (bottom)
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🔄 Reset Page", key="reset_quiz"):
+        reset_page_inputs_session()
+        st.success("Page inputs cleared.")
 
 # -------------------------------
 # REPORT PAGE (no mascot)
@@ -1274,7 +1367,13 @@ elif st.session_state.page == "report":
     fig_week.update_layout(yaxis={'title': 'Completion %', 'range': [0, 100]}, showlegend=False,
                             margin=dict(l=20, r=20, t=20, b=40), height=340,
                             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
+    st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': True})
+
+    # Report note about zoom behavior (requested)
+    st.markdown(
+        '<p style="font-size:14px; color:gray;">Please double-tap to zoom out from the graph.</p>',
+        unsafe_allow_html=True
+    )
 
     achieved_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "achieved")
     almost_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "almost")
