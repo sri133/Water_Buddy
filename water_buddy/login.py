@@ -1,12 +1,5 @@
-# app_full_with_mascots.py
-# Complete Water Buddy Streamlit app:
-# - original features (login/signup, settings, water intake, report, streak)
-# - sqlite persistence (credentials + userdata)
-# - Gemini integration via GOOGLE_API_KEY (from st.secrets or .env)
-# - mascots loaded from your GitHub assets folder, time/meal/night/hot/default rules
-# - post-goal mascot (image (9).png) shown for 5 minutes after completing daily goal
-# - automatic temperature detection (ip -> open-meteo, no API key required)
-# - mascots rendered inline inside each page (Report page intentionally no mascot)
+# app.py
+# Full Water Buddy app with mascots and Quiz page (single-file)
 
 import streamlit as st
 import json
@@ -453,6 +446,149 @@ def render_mascot_inline(mascot: Optional[Dict[str, str]]):
         )
 
 # -------------------------------
+# Quiz utilities
+# -------------------------------
+def generate_quiz_via_model():
+    """Ask Gemini to generate 10 MCQ questions in JSON format."""
+    fallback = generate_quiz_fallback()
+    try:
+        if not model:
+            return fallback
+        # Prompt asks model to produce a JSON array of 10 objects like:
+        # [{ "q": "...", "options": ["A","B","C","D"], "correct_index": 1, "explanation": "..." }, ...]
+        prompt = """
+Generate 10 multiple-choice questions about water (health/hydration facts, water history, and recent water-related news/documentaries).
+Return as valid JSON array only. Each item must be an object with fields:
+- "q": question text
+- "options": array of 4 option strings
+- "correct_index": index of correct option (0..3)
+- "explanation": short explanation (1-2 sentences) why the correct answer is correct.
+Keep each question concise and suitable for general audience.
+"""
+        resp = model.generate_content(prompt)
+        text = resp.text.strip()
+        # Try to parse JSON out of model output
+        # Model should output JSON only; handle if it has backticks or text around JSON
+        json_start = text.find("[")
+        json_text = text if json_start == 0 else text[json_start:]
+        data = json.loads(json_text)
+        # Basic validation
+        if isinstance(data, list) and len(data) >= 10:
+            # Normalize to 10 items exactly
+            return data[:10]
+        else:
+            return fallback
+    except Exception:
+        return fallback
+
+def generate_quiz_fallback():
+    # A safe fallback with 10 sample questions (simple).
+    sample = [
+        {
+            "q": "What percentage of the adult human body is roughly water?",
+            "options": ["~30%", "~60%", "~80%", "~95%"],
+            "correct_index": 1,
+            "explanation": "About 60% of an adult human's body is water, though this varies with age, sex, and body composition."
+        },
+        {
+            "q": "Which process returns water to the atmosphere from plants?",
+            "options": ["Condensation", "Precipitation", "Transpiration", "Infiltration"],
+            "correct_index": 2,
+            "explanation": "Transpiration is the process where plants release water vapor to the atmosphere from their leaves."
+        },
+        {
+            "q": "Which is the primary source of fresh water for most cities?",
+            "options": ["Seawater", "Groundwater and rivers/lakes", "Glaciers only", "Rainwater only"],
+            "correct_index": 1,
+            "explanation": "Most cities rely on surface water (rivers/lakes) and groundwater; sources vary by region."
+        },
+        {
+            "q": "Who invented the steam engine that helped early water pumping in the 1700s?",
+            "options": ["James Watt", "Isaac Newton", "Thomas Edison", "Nikola Tesla"],
+            "correct_index": 0,
+            "explanation": "James Watt improved steam engine designs that were important for pumping and industrial uses."
+        },
+        {
+            "q": "What is a common method to make seawater drinkable?",
+            "options": ["Filtration only", "Chlorination", "Desalination", "Sedimentation"],
+            "correct_index": 2,
+            "explanation": "Desalination removes salts and minerals from seawater, making it suitable to drink."
+        },
+        {
+            "q": "Which documentary theme would most likely be featured on a water-focused film?",
+            "options": ["Space travel", "Water scarcity and conservation", "Mountain climbing", "Astrophysics"],
+            "correct_index": 1,
+            "explanation": "Water-focused documentaries often highlight scarcity, conservation, pollution, and solutions."
+        },
+        {
+            "q": "What is the main reason to avoid drinking large volumes right before bed?",
+            "options": ["It causes headaches", "It can disrupt sleep with bathroom trips", "It freezes in the body", "It removes vitamins"],
+            "correct_index": 1,
+            "explanation": "Drinking a lot before sleep may lead to waking up at night to use the bathroom, disrupting sleep."
+        },
+        {
+            "q": "Which gas dissolves in water and is essential for plant photosynthesis?",
+            "options": ["Oxygen", "Nitrogen", "Carbon dioxide", "Helium"],
+            "correct_index": 2,
+            "explanation": "Carbon dioxide dissolves in water and is used by aquatic plants in photosynthesis."
+        },
+        {
+            "q": "Which ancient civilization developed advanced irrigation systems?",
+            "options": ["Incas", "Indus Valley, Mesopotamia, and Egyptians", "Victorians", "Aztecs only"],
+            "correct_index": 1,
+            "explanation": "Civilizations like Mesopotamia, the Indus Valley, and ancient Egypt developed early irrigation to support agriculture."
+        },
+        {
+            "q": "What is one simple way households can conserve water daily?",
+            "options": ["Run taps while brushing teeth", "Take longer showers", "Repair leaks and use efficient fixtures", "Water the lawn midday"],
+            "correct_index": 2,
+            "explanation": "Fixing leaks and using efficient fixtures (low-flow faucets, showerheads) is an effective way to conserve water."
+        }
+    ]
+    return sample
+
+def get_daily_quiz():
+    today_str = date.today().isoformat()
+    # Store in session_state to avoid regen mid-day and reduce cost calls
+    if st.session_state.get("daily_quiz_date") == today_str and st.session_state.get("daily_quiz"):
+        return st.session_state["daily_quiz"]
+    # Otherwise: generate via model (if possible) or fallback
+    quiz = generate_quiz_via_model()
+    st.session_state["daily_quiz_date"] = today_str
+    st.session_state["daily_quiz"] = quiz
+    return quiz
+
+def grade_quiz_and_explain(quiz, answers):
+    """
+    quiz: list of items (q/options/correct_index/explanation maybe)
+    answers: list of selected index ints
+    returns results list and score
+    """
+    results = []
+    score = 0
+    for i, item in enumerate(quiz):
+        correct = item.get("correct_index", 0)
+        selected = answers[i]
+        is_correct = (selected == correct)
+        if is_correct:
+            score += 1
+        # explanation: use provided explanation if present; otherwise generate via Gemini
+        explanation = item.get("explanation")
+        if not explanation:
+            # Ask gemini for short explanation for the correct answer
+            context = f"Explain why the option '{item['options'][correct]}' is the correct answer for the question: {item['q']}"
+            explanation = ask_gemini_for_message(context, "This is the correct answer because of established facts.")
+        results.append({
+            "q": item["q"],
+            "options": item["options"],
+            "correct_index": correct,
+            "selected_index": selected,
+            "is_correct": is_correct,
+            "explanation": explanation
+        })
+    return results, score
+
+# -------------------------------
 # LOGIN PAGE
 # -------------------------------
 if st.session_state.page == "login":
@@ -506,7 +642,7 @@ if st.session_state.page == "login":
     render_mascot_inline(mascot)
 
 # -------------------------------
-# PERSONAL SETTINGS PAGE
+# PERSONAL SETTINGS PAGE (unchanged behaviour)
 # -------------------------------
 elif st.session_state.page == "settings":
     if not st.session_state.logged_in:
@@ -676,7 +812,17 @@ elif st.session_state.page == "home":
     )
     
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
-    
+
+    # NEW: show current temperature on Home page (uses same detection routine as mascot logic)
+    temp_c = read_current_temperature_c()
+    if temp_c is not None:
+        try:
+            st.markdown(f"<div style='text-align:center;'>🌡️ **Current Temperature:** {round(temp_c,1)} °C</div>", unsafe_allow_html=True)
+        except Exception:
+            st.write(f"🌡️ Current Temperature: {temp_c} °C")
+    else:
+        st.markdown(f"<div style='text-align:center;'>🌡️ **Current Temperature:** (unavailable)</div>", unsafe_allow_html=True)
+
     fill_percent = min(st.session_state.total_intake / daily_goal, 1.0) if daily_goal > 0 else 0
     
     bottle_html = f"""
@@ -787,6 +933,11 @@ elif st.session_state.page == "home":
             st.session_state.water_intake_log = []
             go_to_page("login")
 
+    # NEW: Quiz navigation button (like other page buttons)
+    st.write("")
+    if st.button("🧠 Take Today's Quiz"):
+        go_to_page("quiz")
+
     # Chatbot (unchanged)
     st.markdown("""
     <style>
@@ -873,6 +1024,116 @@ elif st.session_state.page == "home":
     # Mascot inline on Home page (below the main content)
     mascot = choose_mascot_and_message("home", username)
     render_mascot_inline(mascot)
+
+# -------------------------------
+# QUIZ PAGE
+# -------------------------------
+elif st.session_state.page == "quiz":
+    if not st.session_state.logged_in:
+        go_to_page("login")
+    username = st.session_state.username
+    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>🧠 Daily Water Quiz</h1>", unsafe_allow_html=True)
+    st.write("Test your water knowledge — 10 questions. Explanations will be shown after you submit.")
+    st.write("---")
+
+    # Load or generate today's quiz
+    quiz = get_daily_quiz()  # returns list of 10 dicts
+    # ensure length 10
+    if not quiz or len(quiz) < 1:
+        st.error("❗ Could not load quiz right now. Try again later.")
+    else:
+        # Display questions with radio options A-D
+        if "quiz_answers" not in st.session_state:
+            st.session_state.quiz_answers = [None] * len(quiz)
+        if "quiz_submitted" not in st.session_state:
+            st.session_state.quiz_submitted = False
+            st.session_state.quiz_results = None
+            st.session_state.quiz_score = None
+
+        # For each question show radios
+        for i, item in enumerate(quiz):
+            q_text = item.get("q", f"Question {i+1}")
+            options = item.get("options", [])
+            # ensure 4 options
+            if len(options) < 4:
+                # pad if needed
+                while len(options) < 4:
+                    options.append("N/A")
+            st.markdown(f"**Q{i+1}. {q_text}**")
+            # map options to labels A-D
+            labels = ["A", "B", "C", "D"]
+            full_options = [f"{labels[j]}. {options[j]}" for j in range(4)]
+            default_index = 0
+            existing = st.session_state.quiz_answers[i]
+            selected = st.radio(f"Select answer for Q{i+1}", full_options, index=existing if existing is not None else 0, key=f"q_{i}")
+            # store selected index
+            sel_index = full_options.index(selected)
+            st.session_state.quiz_answers[i] = sel_index
+            st.write("")
+
+        # Submit button
+        if not st.session_state.quiz_submitted:
+            if st.button("Submit Answers"):
+                # grade
+                answers = [ans if ans is not None else 0 for ans in st.session_state.quiz_answers]
+                results, score = grade_quiz_and_explain(quiz, answers)
+                st.session_state.quiz_results = results
+                st.session_state.quiz_score = score
+                st.session_state.quiz_submitted = True
+                # optionally persist user quiz history under user_data
+                ensure_user_structures(username)
+                user_hist = user_data[username].setdefault("quiz_history", {})
+                today = date.today().isoformat()
+                user_hist[today] = {"score": score, "total": len(quiz), "timestamp": datetime.now().isoformat()}
+                save_user_data(user_data)
+                st.experimental_rerun()
+
+        else:
+            # show results
+            results = st.session_state.quiz_results
+            score = st.session_state.quiz_score or 0
+            st.markdown(f"## Results — Score: **{score} / {len(quiz)}**")
+            for i, r in enumerate(results):
+                q = r["q"]
+                options = r["options"]
+                correct_index = r["correct_index"]
+                selected_index = r["selected_index"]
+                is_correct = r["is_correct"]
+                explanation = r["explanation"]
+                label_map = ["A","B","C","D"]
+                st.markdown(f"**Q{i+1}. {q}**")
+                for idx, opt in enumerate(options):
+                    prefix = "✅" if idx == correct_index else ("🔸" if idx == selected_index and not is_correct else "•")
+                    st.write(f"{prefix} {label_map[idx]}. {opt}")
+                if is_correct:
+                    st.success(f"Correct — {explanation}")
+                else:
+                    st.error(f"Wrong. {explanation}")
+                st.write("---")
+            # final motivational message via gemini
+            try:
+                msg = ask_gemini_for_message(f"Congratulate user for taking today's water quiz and give a short motivational line based on score {score} out of {len(quiz)}.", "Nice work — keep learning about water and stay hydrated!")
+                st.info(msg)
+            except Exception:
+                pass
+
+    # Navigation buttons (same style as other pages)
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        if st.button("🏠 Home"):
+            go_to_page("home")
+    with col2:
+        if st.button("👤 Personal Settings"):
+            go_to_page("settings")
+    with col3:
+        if st.button("🚰 Water Intake"):
+            go_to_page("water_profile")
+    with col4:
+        if st.button("📈 Report"):
+            go_to_page("report")
+    with col5:
+        if st.button("🔥 Daily Streak"):
+            go_to_page("daily_streak")
 
 # -------------------------------
 # REPORT PAGE (no mascot)
@@ -1199,5 +1460,6 @@ elif st.session_state.page == "daily_streak":
 # End of App
 # -------------------------------
 
-# Note: keep DB connection open. If you want to explicitly close:
+# Note: database connection remains open for app lifetime (Streamlit).
+# If you ever need to explicitly close it:
 # conn.close()
