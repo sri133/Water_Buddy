@@ -1,16 +1,18 @@
+# app.py  (updated with mascots)
 import streamlit as st
 import json
 import os
 import pycountry
 import re
 import pandas as pd
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, time as dtime
 from dotenv import load_dotenv
 import google.generativeai as genai
 import calendar
 import plotly.graph_objects as go
 import sqlite3
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from urllib.parse import quote
 
 # -------------------------------
 # ✅ Load API key from .env or Streamlit Secrets
@@ -210,6 +212,246 @@ def update_weekly_record_on_add(username: str, date_str: str, liters: float):
     save_user_data(user_data)
 
 # -------------------------------
+# Mascot system utilities
+# -------------------------------
+GITHUB_ASSETS_BASE = "https://raw.githubusercontent.com/sri133/Water_Buddy/main/water_buddy/assets/"
+
+def build_image_url(filename: str) -> str:
+    # Quote filename for spaces and parentheses
+    return GITHUB_ASSETS_BASE + quote(filename, safe='')
+
+def read_current_temperature_c() -> Optional[float]:
+    """
+    Attempt to read temperature (C) from secrets or environment.
+    If not available, return None (so hot-weather condition is skipped).
+    You can populate st.secrets['CURRENT_TEMPERATURE_C'] or the env var for this.
+    """
+    try:
+        if "CURRENT_TEMPERATURE_C" in st.secrets:
+            return float(st.secrets["CURRENT_TEMPERATURE_C"])
+    except Exception:
+        pass
+    try:
+        t = os.getenv("CURRENT_TEMPERATURE_C")
+        if t:
+            return float(t)
+    except Exception:
+        pass
+    return None
+
+def time_in_range(start: dtime, end: dtime, check: dtime) -> bool:
+    # Inclusive of endpoints; handles ranges that wrap midnight
+    if start <= end:
+        return start <= check <= end
+    else:
+        return check >= start or check <= end
+
+def is_within_reminder_window(frequency_minutes: int, tolerance_minutes: int = 5) -> bool:
+    """
+    Determine if now is within tolerance_minutes before/after a periodic reminder
+    that runs every frequency_minutes from midnight. For example, for 30-minute frequency,
+    reminders at 00:00, 00:30, 01:00, ... This computes minutes since midnight and checks proximity.
+    """
+    now = datetime.now()
+    minutes_since_midnight = now.hour * 60 + now.minute
+    if frequency_minutes <= 0:
+        return False
+    remainder = minutes_since_midnight % frequency_minutes
+    # within tolerance before or after tick
+    return (remainder <= tolerance_minutes) or (frequency_minutes - remainder <= tolerance_minutes)
+
+def ask_gemini_for_message(context: str, fallback: str) -> str:
+    """
+    Use the configured Gemini model to generate a short message for the mascot.
+    Keep result short. On failure, return fallback.
+    """
+    try:
+        if model:
+            prompt = f"You are Water Buddy, a friendly hydration assistant. Respond briefly (one or two sentences) based on this context: {context}\nOnly return the message text."
+            response = model.generate_content(prompt)
+            text_output = response.text.strip()
+            # sanitize newlines
+            text_output = " ".join(text_output.splitlines())
+            # limit length
+            if len(text_output) > 240:
+                text_output = text_output[:237] + "..."
+            return text_output
+    except Exception:
+        pass
+    return fallback
+
+def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, str]]:
+    """
+    Decide which mascot image + message to show and return dict:
+    { "image": url, "message": text, "id": <id-string> }
+    Returns None if nothing should be shown.
+    """
+    now = datetime.now()
+    t = now.time()
+    temp_c = read_current_temperature_c()
+
+    # Prepare user info for reminders and goal checks
+    ensure_user_structures(username)
+    wp = user_data.get(username, {}).get("water_profile", {})
+    freq_text = wp.get("frequency", "30 minutes")
+    try:
+        freq_minutes = int(re.findall(r"(\d+)", freq_text)[0])
+    except Exception:
+        freq_minutes = 30
+
+    # Post-Daily-Goal: show if recently completed
+    last_completed_iso = st.session_state.get("last_goal_completed_at")
+    if last_completed_iso:
+        try:
+            last_dt = datetime.fromisoformat(last_completed_iso)
+            if (datetime.now() - last_dt) <= timedelta(minutes=3):
+                # show post-goal mascot (image(9).png)
+                img = build_image_url("image (9).png")
+                context = "User just completed the daily water goal. Provide a fun water fact and a brief congratulatory message."
+                msg = ask_gemini_for_message(context, "🎉 Amazing job — you hit your daily water goal! Here's a fun water fact: water covers about 71% of Earth's surface.")
+                return {"image": img, "message": msg, "id": "post_goal"}
+        except Exception:
+            pass
+
+    # Page-specific rules
+    # 1) Login Page: image(1).png every time user opens login page
+    if page == "login":
+        img = build_image_url("image (1).png")
+        context = "Greeting message for a user opening the login page. Keep it friendly and short."
+        msg = ask_gemini_for_message(context, "Hi there! Welcome back to HP PARTNER — log in to track your hydration.")
+        return {"image": img, "message": msg, "id": "login"}
+
+    # 2) Daily Streak Page: image(2).png always visible next to streak
+    if page == "daily_streak":
+        img = build_image_url("image (2).png")
+        context = "Motivational message for the daily streak page. Give a short encouraging line and a tip. Update hourly."
+        msg = ask_gemini_for_message(context, "🔥 Keep going — every sip counts! Tip: set small, consistent reminders to stay hydrated.")
+        return {"image": img, "message": msg, "id": "daily_streak"}
+
+    # 3) Home Page: many conditions
+    if page == "home":
+        # Night: 9:30 PM – 5:00 AM -> image(8).png
+        night_start = dtime(hour=21, minute=30)
+        night_end = dtime(hour=5, minute=0)
+        if time_in_range(night_start, night_end, t):
+            img = build_image_url("image (8).png")
+            context = "Night greeting and tip for winding down hydration (avoid heavy drinking close to sleep). Keep it short."
+            msg = ask_gemini_for_message(context, "🌙 It's late — sip lightly if needed and avoid heavy drinking right before sleep.")
+            return {"image": img, "message": msg, "id": "night"}
+
+        # Morning: 5:00 AM – 9:00 AM -> image(6).jpg
+        if time_in_range(dtime(5,0), dtime(9,0), t):
+            img = build_image_url("image (6).jpg")
+            context = "Morning greeting: energetic, short. Encourage starting the day with water."
+            msg = ask_gemini_for_message(context, "Good morning! A glass of water is a great way to start your day — you've got this! 💧")
+            return {"image": img, "message": msg, "id": "morning"}
+
+        # Meal windows: Breakfast 8–9 AM, Lunch 1–2 PM, Dinner 8:30–9:30 PM -> image(5).jpg
+        if time_in_range(dtime(8,0), dtime(9,0), t) or time_in_range(dtime(13,0), dtime(14,0), t) or time_in_range(dtime(20,30), dtime(21,30), t):
+            img = build_image_url("image (5).jpg")
+            context = "Meal-time tip about avoiding heavy drinking right before or after meals. Keep it short and practical."
+            msg = ask_gemini_for_message(context, "During meals, avoid drinking large amounts right before or after eating — small sips are fine.")
+            return {"image": img, "message": msg, "id": "meal"}
+
+        # Reminder: appears 5 min before/after reminders (e.g., every freq minutes) -> image(4).png
+        if is_within_reminder_window(freq_minutes, tolerance_minutes=5):
+            img = build_image_url("image (4).png")
+            context = f"Reminder / motivation message: remind the user to drink water now. Frequency: every {freq_minutes} minutes."
+            msg = ask_gemini_for_message(context, "⏰ Time for a sip! A quick drink will keep you on track for your daily goal.")
+            return {"image": img, "message": msg, "id": "reminder"}
+
+        # Hot weather: Temperature >= 40°C -> image(7)
+        if temp_c is not None and temp_c >= 40.0:
+            # try multiple possible file extensions
+            for fname in ["image (7).png", "image (7).jpg", "image (7).jpeg"]:
+                # We will just return with the constructed filename — Streamlit will handle failed image loads gracefully.
+                img = build_image_url(fname)
+                context = f"Hot weather advice for {temp_c}°C — short tip to hydrate more and avoid heat stress."
+                msg = ask_gemini_for_message(context, f"It's hot outside ({temp_c}°C). Drink more frequently and avoid long sun exposure.")
+                return {"image": img, "message": msg, "id": "hot_weather"}
+
+        # Fallback for Home Page (default mascot) -> image(3).png any time not covered
+        img = build_image_url("image (3).png")
+        # Provide greeting and a gentle reminder if user hasn't drunk recently
+        # Use session or today intake to customize
+        today_str = date.today().strftime("%Y-%m-%d")
+        today_intake = user_data.get(username, {}).get("daily_intake", {}).get(today_str, 0.0)
+        if today_intake < user_data.get(username, {}).get("water_profile", {}).get("daily_goal", 2.5) * 0.5:
+            context = "Friendly greeting and gentle reminder to drink a little water if the user is less than 50% to today's goal."
+            msg = ask_gemini_for_message(context, "Hi! A little sip now will keep you feeling fresh — you're doing great!")
+        else:
+            context = "Friendly greeting for the home page."
+            msg = ask_gemini_for_message(context, "Hello! Keep up the good work — you're doing well with your hydration today.")
+        return {"image": img, "message": msg, "id": "home_fallback"}
+
+    # Default fallback when nothing else matches: show fallback mascot (image 3)
+    img = build_image_url("image (3).png")
+    msg = ask_gemini_for_message("Default greeting", "Hi! I'm Water Buddy — how can I help you stay hydrated today?")
+    return {"image": img, "message": msg, "id": "default"}
+
+def render_mascot_bubble(mascot: Dict[str, str]):
+    """
+    Renders a floating cloud bubble with image and message.
+    Expects mascot keys: image, message
+    """
+    if not mascot:
+        return
+    image_url = mascot.get("image")
+    message = mascot.get("message", "")
+    # Simple cloud-style bubble with image on left and text on right
+    bubble_html = f"""
+    <style>
+    .mascot-bubble {{
+        position: fixed;
+        bottom: 110px;
+        right: 25px;
+        width: 340px;
+        max-width: 86%;
+        background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,250,250,0.98));
+        border-radius: 18px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+        padding: 10px 12px;
+        z-index: 2000;
+        display:flex;
+        align-items:center;
+        gap:10px;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }}
+    .mascot-image {{
+        width:64px;
+        height:64px;
+        border-radius: 12px;
+        object-fit: cover;
+        flex: 0 0 64px;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+    }}
+    .mascot-text {{
+        font-size: 14px;
+        color: #111;
+        line-height:1.2;
+        flex:1;
+    }}
+    .mascot-close {{
+        position: absolute;
+        top:6px;
+        right:8px;
+        font-size:14px;
+        color:#888;
+        cursor:pointer;
+    }}
+    @media(max-width:600px){{
+        .mascot-bubble{{ bottom:90px; right:10px; width:300px; }}
+    }}
+    </style>
+    <div class="mascot-bubble" id="mascotBubble">
+        <img class="mascot-image" src="{image_url}" alt="mascot">
+        <div class="mascot-text">{message}</div>
+        <div class="mascot-close" onclick="document.getElementById('mascotBubble').style.display='none'">✕</div>
+    </div>
+    """
+    st.markdown(bubble_html, unsafe_allow_html=True)
+
+# -------------------------------
 # Streamlit session initialization
 # -------------------------------
 if "logged_in" not in st.session_state:
@@ -226,6 +468,9 @@ if "show_chatbot" not in st.session_state:
     st.session_state.show_chatbot = False
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+# session state to track last goal completion timestamp (isoformat)
+if "last_goal_completed_at" not in st.session_state:
+    st.session_state.last_goal_completed_at = None
 
 # -------------------------------
 # Country list utility
@@ -291,6 +536,11 @@ if st.session_state.page == "login":
                     go_to_page("settings")
             else:
                 st.error("❌ Invalid username or password.")
+
+    # Show mascot for login
+    mascot = choose_mascot_and_message("login", st.session_state.username or "")
+    if mascot:
+        render_mascot_bubble(mascot)
 
 # -------------------------------
 # PERSONAL SETTINGS PAGE (unchanged behaviour)
@@ -510,6 +760,7 @@ elif st.session_state.page == "home":
                 user_streak = user_data[username]["streak"]
                 daily_goal_for_checks = user_data[username]["water_profile"].get("daily_goal", 2.5)
                 
+                just_completed = False
                 if st.session_state.total_intake >= daily_goal_for_checks:
                     if today_str not in user_streak.get("completed_days", []):
                         user_streak.setdefault("completed_days", []).append(today_str)
@@ -528,10 +779,15 @@ elif st.session_state.page == "home":
                         
                         user_streak["current_streak"] = streak
                         user_data[username]["streak"] = user_streak
+                        just_completed = True
 
                 # Save user_data after modifications
                 save_user_data(user_data)
-                
+
+                # If just completed goal, set session timestamp to show post-goal mascot
+                if just_completed:
+                    st.session_state.last_goal_completed_at = datetime.now().isoformat()
+
                 # Rerun to refresh UI
                 st.rerun()
                 st.stop()
@@ -653,6 +909,11 @@ elif st.session_state.page == "home":
                     
                     st.session_state.chat_history.append({"sender": "bot", "text": reply})
                     st.rerun()
+
+    # Mascot logic for Home page
+    mascot = choose_mascot_and_message("home", username)
+    if mascot:
+        render_mascot_bubble(mascot)
 
 # -------------------------------
 # REPORT PAGE (uses weekly_data persisted until next Monday)
@@ -847,8 +1108,13 @@ elif st.session_state.page == "report":
         if st.button("🔥 Daily Streak"):
             go_to_page("daily_streak")
 
+    # Mascot for Report (fallback/default)
+    mascot = choose_mascot_and_message("report", username)
+    if mascot:
+        render_mascot_bubble(mascot)
+
 # -------------------------------
-# DAILY STREAK PAGE (unchanged)
+# DAILY STREAK PAGE (unchanged except mascot)
 # -------------------------------
 elif st.session_state.page == "daily_streak":
     if not st.session_state.logged_in:
@@ -1002,6 +1268,11 @@ elif st.session_state.page == "daily_streak":
             go_to_page("report")
     with col5:
         st.info("You're on Daily Streak")
+
+    # Mascot for Daily Streak (fire mascot always visible next to streak)
+    mascot = choose_mascot_and_message("daily_streak", username)
+    if mascot:
+        render_mascot_bubble(mascot)
 
 # -------------------------------
 # End of App
