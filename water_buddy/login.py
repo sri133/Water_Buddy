@@ -1,9 +1,12 @@
-# app_with_mascots_and_weather.py
-# Full Streamlit app (original functionality) plus mascot system and automatic temperature detection (no API keys).
-# - Uses Gemini via your existing GOOGLE_API_KEY in st.secrets or .env
-# - Mascot images loaded from your GitHub assets folder
-# - Post-goal mascot (image (9).png) displays for 5 minutes after goal completion
-# - No mascot on Report page
+# app_full_with_mascots.py
+# Complete Water Buddy Streamlit app:
+# - original features (login/signup, settings, water intake, report, streak)
+# - sqlite persistence (credentials + userdata)
+# - Gemini integration via GOOGLE_API_KEY (from st.secrets or .env)
+# - mascots loaded from your GitHub assets folder, time/meal/night/hot/default rules
+# - post-goal mascot (image (9).png) shown for 5 minutes after completing daily goal
+# - automatic temperature detection (ip -> open-meteo, no API key required)
+# - mascots rendered inline inside each page (Report page intentionally no mascot)
 
 import streamlit as st
 import json
@@ -20,9 +23,10 @@ import sqlite3
 from typing import Dict, Any, Optional
 from urllib.parse import quote
 import requests
+import pytz
 
 # -------------------------------
-# Load API key from .env or Streamlit Secrets (no change)
+# Load API key from .env or Streamlit Secrets
 # -------------------------------
 api_key = None
 if "GOOGLE_API_KEY" in st.secrets:
@@ -46,7 +50,7 @@ else:
 st.set_page_config(page_title="HP PARTNER", page_icon="💧", layout="centered")
 
 # -------------------------------
-# SQLite setup (persistent file)
+# SQLite setup (permanent file in data/)
 # -------------------------------
 DATA_DIR = "data"
 DB_PATH = os.path.join(DATA_DIR, "user_data.db")
@@ -117,7 +121,7 @@ def save_userdata_to_db(userdata: Dict[str, Any]):
         conn.rollback()
         raise
 
-# Initialize in-memory from DB
+# Initialize in-memory dictionaries from DB
 users, user_data = load_all_from_db()
 
 def save_credentials(creds):
@@ -131,13 +135,17 @@ def save_user_data(data):
     save_userdata_to_db(data)
 
 # -------------------------------
-# Helper functions: user structures, weeks, days
+# Helper functions for user data structure and weekly/daily handling
 # -------------------------------
 def go_to_page(page_name: str):
     st.session_state.page = page_name
     st.rerun()
 
 def ensure_user_structures(username: str):
+    """
+    Ensure expected keys exist for the given user in user_data.
+    Does not overwrite existing keys — only sets defaults when missing.
+    """
     if username not in user_data:
         user_data[username] = {}
     user = user_data[username]
@@ -146,39 +154,56 @@ def ensure_user_structures(username: str):
     user.setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
     user.setdefault("streak", {"completed_days": [], "current_streak": 0})
     user.setdefault("daily_intake", {})   # date -> liters, plus last_login_date meta
-    user.setdefault("weekly_data", {"week_start": None, "days": {}})
+    user.setdefault("weekly_data", {"week_start": None, "days": {}})  # week_start (Mon), days map
+    # Save any new defaults immediately so DB is consistent
     save_user_data(user_data)
 
 def current_week_start(d: date = None) -> date:
     if d is None:
         d = date.today()
-    return d - timedelta(days=d.weekday())
+    return d - timedelta(days=d.weekday())  # Monday
 
 def ensure_week_current(username: str):
+    """
+    If weekly_data.week_start differs from current week's Monday, reset weekly_data.days
+    (this resets only when a new Monday arrives).
+    """
     ensure_user_structures(username)
     weekly = user_data[username].setdefault("weekly_data", {"week_start": None, "days": {}})
     this_week_start = current_week_start()
     this_week_start_str = this_week_start.strftime("%Y-%m-%d")
     if weekly.get("week_start") != this_week_start_str:
+        # Start a new week (clear only weekly days, keep profile/streak/daily_intake)
         weekly["week_start"] = this_week_start_str
         weekly["days"] = {}
         save_user_data(user_data)
 
 def load_today_intake_into_session(username: str):
+    """
+    Loads today's intake into st.session_state.total_intake.
+    If last_login_date != today, create today's entry and set session total to 0.0 (auto-reset).
+    This function does NOT delete user profile or credentials.
+    """
     ensure_user_structures(username)
     today_str = date.today().strftime("%Y-%m-%d")
     daily = user_data[username].setdefault("daily_intake", {})
     last_login = daily.get("last_login_date")
     if last_login != today_str:
+        # New day: set today's intake to 0.0, but do not remove other historical daily_intake entries
         daily["last_login_date"] = today_str
         daily.setdefault(today_str, 0.0)
         save_user_data(user_data)
         st.session_state.total_intake = 0.0
+        # ephemeral session log resets
         st.session_state.water_intake_log = []
     else:
         st.session_state.total_intake = float(daily.get(today_str, 0.0))
 
 def update_weekly_record_on_add(username: str, date_str: str, liters: float):
+    """
+    Update weekly_data.days[date_str] = liters for the current week.
+    This persists the day's total so the weekly graph remains even after a new day's auto-reset.
+    """
     ensure_user_structures(username)
     ensure_week_current(username)
     weekly = user_data[username]["weekly_data"]
@@ -187,23 +212,93 @@ def update_weekly_record_on_add(username: str, date_str: str, liters: float):
     save_user_data(user_data)
 
 # -------------------------------
-# Mascot system utilities
+# Session initialization
+# -------------------------------
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "page" not in st.session_state:
+    st.session_state.page = "login"
+if "username" not in st.session_state:
+    st.session_state.username = ""
+if "water_intake_log" not in st.session_state:
+    st.session_state.water_intake_log = []
+if "total_intake" not in st.session_state:
+    st.session_state.total_intake = 0.0
+if "show_chatbot" not in st.session_state:
+    st.session_state.show_chatbot = False
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "last_goal_completed_at" not in st.session_state:
+    st.session_state.last_goal_completed_at = None
+
+# -------------------------------
+# Country list utility
+# -------------------------------
+countries = [c.name for c in pycountry.countries]
+
+# -------------------------------
+# Mascot utilities & logic
 # -------------------------------
 GITHUB_ASSETS_BASE = "https://raw.githubusercontent.com/sri133/Water_Buddy/main/water_buddy/assets/"
 
 def build_image_url(filename: str) -> str:
-    # percent-encode spaces/parentheses etc.
     return GITHUB_ASSETS_BASE + quote(filename, safe='')
+
+@st.cache_data(ttl=300)
+def get_location_from_ip():
+    try:
+        # Use ip-api to get lat/lon
+        resp = requests.get("http://ip-api.com/json/?fields=status,message,lat,lon", timeout=4)
+        if resp.status_code == 200:
+            j = resp.json()
+            if j.get("status") == "success":
+                return {"lat": float(j.get("lat")), "lon": float(j.get("lon"))}
+    except Exception:
+        pass
+    return None
+
+@st.cache_data(ttl=300)
+def get_current_temperature_c(lat: float, lon: float) -> Optional[float]:
+    try:
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true&timezone=UTC"
+        resp = requests.get(url, timeout=4)
+        if resp.status_code == 200:
+            j = resp.json()
+            cw = j.get("current_weather")
+            if cw and "temperature" in cw:
+                return float(cw["temperature"])
+    except Exception:
+        pass
+    return None
+
+def read_current_temperature_c() -> Optional[float]:
+    # override via secrets/env if provided (useful in hosting)
+    try:
+        if "CURRENT_TEMPERATURE_C" in st.secrets:
+            return float(st.secrets["CURRENT_TEMPERATURE_C"])
+    except Exception:
+        pass
+    try:
+        t = os.getenv("CURRENT_TEMPERATURE_C")
+        if t:
+            return float(t)
+    except Exception:
+        pass
+    # else try automatic fetch via IP -> open-meteo
+    loc = get_location_from_ip()
+    if loc:
+        return get_current_temperature_c(loc["lat"], loc["lon"])
+    return None
 
 def time_in_range(start: dtime, end: dtime, check: dtime) -> bool:
     if start <= end:
         return start <= check <= end
     else:
-        # wraps midnight
         return check >= start or check <= end
 
 def is_within_reminder_window(frequency_minutes: int, tolerance_minutes: int = 5) -> bool:
-    now = datetime.now()
+    india_tz = pytz.timezone("Asia/Kolkata")
+    now = datetime.now(india_tz)
     minutes_since_midnight = now.hour * 60 + now.minute
     if frequency_minutes <= 0:
         return False
@@ -224,67 +319,9 @@ def ask_gemini_for_message(context: str, fallback: str) -> str:
         pass
     return fallback
 
-# -------------------------------
-# Weather detection (no API key)
-# - Get approximate lat/lon from ip-api.com/json
-# - Query open-meteo.com/current for current temperature celsius
-# -------------------------------
-def get_location_from_ip() -> Optional[Dict[str, float]]:
-    try:
-        # ip-api free endpoint
-        resp = requests.get("http://ip-api.com/json/?fields=status,message,lat,lon", timeout=4)
-        if resp.status_code == 200:
-            j = resp.json()
-            if j.get("status") == "success":
-                return {"lat": float(j.get("lat")), "lon": float(j.get("lon"))}
-    except Exception:
-        pass
-    return None
-
-def get_current_temperature_c(lat: float, lon: float) -> Optional[float]:
-    try:
-        # Open-Meteo current weather: no API key
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true&timezone=UTC"
-        resp = requests.get(url, timeout=4)
-        if resp.status_code == 200:
-            j = resp.json()
-            cw = j.get("current_weather")
-            if cw and "temperature" in cw:
-                return float(cw["temperature"])
-    except Exception:
-        pass
-    return None
-
-# Cache the temp and location for short time to avoid repeated external calls
-@st.cache_data(ttl=300)
-def fetch_local_temperature():
-    loc = get_location_from_ip()
-    if not loc:
-        return None
-    temp = get_current_temperature_c(loc["lat"], loc["lon"])
-    return temp
-
-def read_current_temperature_c() -> Optional[float]:
-    # First, allow override from secrets or env (useful in deployment)
-    try:
-        if "CURRENT_TEMPERATURE_C" in st.secrets:
-            return float(st.secrets["CURRENT_TEMPERATURE_C"])
-    except Exception:
-        pass
-    try:
-        t = os.getenv("CURRENT_TEMPERATURE_C")
-        if t:
-            return float(t)
-    except Exception:
-        pass
-    # Else try automatic fetch
-    return fetch_local_temperature()
-
-# -------------------------------
-# Mascot selection logic
-# -------------------------------
 def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, str]]:
-    now = datetime.now()
+    india_tz = pytz.timezone("Asia/Kolkata")
+    now = datetime.now(india_tz)
     t = now.time()
     temp_c = read_current_temperature_c()
 
@@ -296,7 +333,7 @@ def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, st
     except Exception:
         freq_minutes = 30
 
-    # Post-Daily-Goal: show if recently completed (5 minutes)
+    # Highest priority: post-daily-goal (5 minutes)
     last_completed_iso = st.session_state.get("last_goal_completed_at")
     if last_completed_iso:
         try:
@@ -323,7 +360,7 @@ def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, st
         return {"image": img, "message": msg, "id": "daily_streak"}
 
     if page == "home":
-        # Night: 21:30 -> 05:00
+        # Night window 21:30 -> 05:00
         night_start = dtime(hour=21, minute=30)
         night_end = dtime(hour=5, minute=0)
         if time_in_range(night_start, night_end, t):
@@ -346,7 +383,7 @@ def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, st
             msg = ask_gemini_for_message(context, "During meals, avoid drinking large amounts right before or after eating — small sips are fine.")
             return {"image": img, "message": msg, "id": "meal"}
 
-        # Reminder window: within 5 min of periodic reminder
+        # Reminder window (5 min before/after reminders)
         if is_within_reminder_window(freq_minutes, tolerance_minutes=5):
             img = build_image_url("image (4).png")
             context = f"Reminder / motivation message: remind the user to drink water now. Frequency: every {freq_minutes} minutes."
@@ -355,14 +392,13 @@ def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, st
 
         # Hot weather
         if temp_c is not None and temp_c >= 40.0:
-            # Try common extensions; we'll return the first one (streamlit handles load)
             for fname in ["image (7).png", "image (7).jpg", "image (7).jpeg"]:
                 img = build_image_url(fname)
                 context = f"Hot weather advice for {temp_c}°C — short tip to hydrate more and avoid heat stress."
                 msg = ask_gemini_for_message(context, f"It's hot outside ({temp_c}°C). Drink more frequently and avoid long sun exposure.")
                 return {"image": img, "message": msg, "id": "hot_weather"}
 
-        # Default fallback on Home
+        # Fallback home mascot
         img = build_image_url("image (3).png")
         today_str = date.today().strftime("%Y-%m-%d")
         today_intake = user_data.get(username, {}).get("daily_intake", {}).get(today_str, 0.0)
@@ -374,22 +410,24 @@ def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, st
             msg = ask_gemini_for_message(context, "Hello! Keep up the good work — you're doing well with your hydration today.")
         return {"image": img, "message": msg, "id": "home_fallback"}
 
-    # Report page intentionally returns None (no mascot)
+    # Report page: intentionally NO mascot to keep it clean
     if page == "report":
         return None
 
-    # Default
+    # Default fallback
     img = build_image_url("image (3).png")
     msg = ask_gemini_for_message("Default greeting", "Hi! I'm Water Buddy — how can I help you stay hydrated today?")
     return {"image": img, "message": msg, "id": "default"}
 
-# Render mascot inline (keeps original layout)
-def render_mascot_inline(mascot: Optional[Dict[str,str]]):
+def render_mascot_inline(mascot: Optional[Dict[str, str]]):
+    """
+    Render the mascot inline in the page content.
+    """
     if not mascot:
         return
     img = mascot.get("image")
     message = mascot.get("message", "")
-    # keep the page layout unchanged; we insert the mascot block where called
+
     col_img, col_msg = st.columns([1, 4])
     with col_img:
         try:
@@ -413,31 +451,6 @@ def render_mascot_inline(mascot: Optional[Dict[str,str]]):
             """,
             unsafe_allow_html=True
         )
-
-# -------------------------------
-# Session init
-# -------------------------------
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "page" not in st.session_state:
-    st.session_state.page = "login"
-if "username" not in st.session_state:
-    st.session_state.username = ""
-if "water_intake_log" not in st.session_state:
-    st.session_state.water_intake_log = []
-if "total_intake" not in st.session_state:
-    st.session_state.total_intake = 0.0
-if "show_chatbot" not in st.session_state:
-    st.session_state.show_chatbot = False
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-if "last_goal_completed_at" not in st.session_state:
-    st.session_state.last_goal_completed_at = None
-
-# -------------------------------
-# Country list
-# -------------------------------
-countries = [c.name for c in pycountry.countries]
 
 # -------------------------------
 # LOGIN PAGE
@@ -488,7 +501,7 @@ if st.session_state.page == "login":
             else:
                 st.error("❌ Invalid username or password.")
 
-    # Mascot inline on login
+    # Inline mascot for login
     mascot = choose_mascot_and_message("login", st.session_state.username or "")
     render_mascot_inline(mascot)
 
@@ -642,7 +655,7 @@ elif st.session_state.page == "water_profile":
         go_to_page("home")
 
 # -------------------------------
-# HOME PAGE (original layout preserved)
+# HOME PAGE (persistent bottle + auto-reset at midnight)
 # -------------------------------
 elif st.session_state.page == "home":
     if not st.session_state.logged_in:
@@ -653,7 +666,9 @@ elif st.session_state.page == "home":
     today_dt = date.today()
     today_str = today_dt.strftime("%Y-%m-%d")
 
+    # Load / auto-reset today's intake for this user (doesn't wipe profile)
     load_today_intake_into_session(username)
+    # Ensure weekly record exists and is for current week
     ensure_week_current(username)
 
     daily_goal = user_data.get(username, {}).get("water_profile", {}).get(
@@ -688,21 +703,24 @@ elif st.session_state.page == "home":
                 st.session_state.water_intake_log.append(f"{ml} ml")
                 st.success(f"✅ Added {ml} ml of water!")
                 
+                # Persist today's total intake (only update daily_intake and weekly_data)
                 ensure_user_structures(username)
                 user_data[username].setdefault("daily_intake", {})
                 user_data[username].setdefault("weekly_data", {"week_start": None, "days": {}})
                 user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
                 user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
 
+                # Save today's intake without wiping other user fields
                 user_data[username]["daily_intake"][today_str] = st.session_state.total_intake
                 user_data[username]["daily_intake"]["last_login_date"] = today_str
 
+                # Also update weekly_data so the weekly graph remains
                 update_weekly_record_on_add(username, today_str, st.session_state.total_intake)
 
+                # Update streak info (unchanged logic)
                 user_streak = user_data[username]["streak"]
                 daily_goal_for_checks = user_data[username]["water_profile"].get("daily_goal", 2.5)
                 
-                just_completed = False
                 if st.session_state.total_intake >= daily_goal_for_checks:
                     if today_str not in user_streak.get("completed_days", []):
                         user_streak.setdefault("completed_days", []).append(today_str)
@@ -721,17 +739,19 @@ elif st.session_state.page == "home":
                         
                         user_streak["current_streak"] = streak
                         user_data[username]["streak"] = user_streak
-                        just_completed = True
 
+                # Save user_data after modifications
                 save_user_data(user_data)
-
+                
                 # Trigger post-goal mascot: set session timestamp when user first completes
-                if just_completed:
-                    st.session_state.last_goal_completed_at = datetime.now().isoformat()
-
-                # Rerun to refresh UI immediately and show post-goal mascot if needed
+                if st.session_state.total_intake >= daily_goal:
+                    if not st.session_state.last_goal_completed_at:
+                        st.session_state.last_goal_completed_at = datetime.now().isoformat()
+                
+                # Rerun to refresh UI
                 st.rerun()
                 st.stop()
+                
             except ValueError:
                 st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
         else:
@@ -760,13 +780,14 @@ elif st.session_state.page == "home":
             go_to_page("daily_streak")
     with col5:
         if st.button("🚪 Logout"):
+            # clear session-only state, keep files intact
             st.session_state.logged_in = False
             st.session_state.username = ""
             st.session_state.total_intake = 0.0
             st.session_state.water_intake_log = []
             go_to_page("login")
 
-    # Chatbot toggle (kept same)
+    # Chatbot (unchanged)
     st.markdown("""
     <style>
     .chat-button {
@@ -849,7 +870,7 @@ elif st.session_state.page == "home":
                     st.session_state.chat_history.append({"sender": "bot", "text": reply})
                     st.rerun()
 
-    # MASCOT: inline in the Home content (below the main content)
+    # Mascot inline on Home page (below the main content)
     mascot = choose_mascot_and_message("home", username)
     render_mascot_inline(mascot)
 
@@ -943,6 +964,7 @@ elif st.session_state.page == "report":
     for d_str, d in zip(week_days_str, week_days):
         liters = weekly.get("days", {}).get(d_str)
         if liters is None:
+            # if it's today, show session value; otherwise 0
             if d == today:
                 liters = st.session_state.total_intake
             else:
@@ -1013,8 +1035,6 @@ elif st.session_state.page == "report":
     with col5:
         if st.button("🔥 Daily Streak"):
             go_to_page("daily_streak")
-
-    # No mascot here by design
 
 # -------------------------------
 # DAILY STREAK PAGE
@@ -1171,10 +1191,13 @@ elif st.session_state.page == "daily_streak":
     with col5:
         st.info("You're on Daily Streak")
 
-    # Mascot inline on daily streak
+    # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
 
+# -------------------------------
 # End of App
-# Note: keep DB connection open. Close it only if necessary:
+# -------------------------------
+
+# Note: keep DB connection open. If you want to explicitly close:
 # conn.close()
