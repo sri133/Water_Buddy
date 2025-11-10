@@ -1,8 +1,6 @@
 # app.py
 # Full Water Buddy app with mascots and Quiz page (single-file)
-# ---- Modified: added reset button (bottom of pages except report/daily_streak),
-# ---- removed weather display but kept weather mascot image(7).png to appear 13:40-14:30,
-# ---- added notes on Login, Report, and Home pages.
+# Modified: added robust reset, home mascot time-window fix, notes, removed home weather display.
 
 import streamlit as st
 import json
@@ -20,6 +18,7 @@ from typing import Dict, Any, Optional
 from urllib.parse import quote
 import requests
 import pytz
+from pathlib import Path
 
 # -------------------------------
 # Load API key from .env or Streamlit Secrets
@@ -32,7 +31,9 @@ else:
     api_key = os.getenv("GOOGLE_API_KEY")
 
 if not api_key:
-    st.error("❌ Missing API key. Please add GOOGLE_API_KEY in your .env or Streamlit Secrets.")
+    # If you host without model, the app still works — model-based features will fallback.
+    st.warning("⚠️ GOOGLE_API_KEY not found in secrets or .env. Gemini features will be disabled.")
+    model = None
 else:
     try:
         genai.configure(api_key=api_key)
@@ -316,6 +317,10 @@ def ask_gemini_for_message(context: str, fallback: str) -> str:
     return fallback
 
 def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, str]]:
+    """
+    Returns a dict like {"image": url_or_local_path, "message": "...", "id": "..."}
+    Added special-case: show assets/image (7).png on home between 13:40 and 14:30 IST
+    """
     india_tz = pytz.timezone("Asia/Kolkata")
     now = datetime.now(india_tz)
     t = now.time()
@@ -355,7 +360,23 @@ def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, st
         msg = ask_gemini_for_message(context, "🔥 Keep going — every sip counts! Tip: set small, consistent reminders to stay hydrated.")
         return {"image": img, "message": msg, "id": "daily_streak"}
 
+    # SPECIAL HOME-TIME MASCOT: between 13:40 and 14:30 show image (7).png from assets or remote
     if page == "home":
+        try:
+            if time_in_range(dtime(13, 40), dtime(14, 30), t):
+                # try local assets path first
+                local_path = Path("assets") / "image (7).png"
+                if local_path.exists():
+                    img = str(local_path)
+                else:
+                    # fallback to remote build_image_url
+                    img = build_image_url("image (7).png")
+                context = "Special midday mascot for hydration reminder."
+                msg = ask_gemini_for_message(context, "Midday reminder — have a refreshing sip of water!")
+                return {"image": img, "message": msg, "id": "special_midday"}
+        except Exception:
+            pass
+
         # Night window 21:30 -> 05:00
         night_start = dtime(hour=21, minute=30)
         night_end = dtime(hour=5, minute=0)
@@ -386,7 +407,7 @@ def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, st
             msg = ask_gemini_for_message(context, "⏰ Time for a sip! A quick drink will keep you on track for your daily goal.")
             return {"image": img, "message": msg, "id": "reminder"}
 
-        # Hot weather -- keep logic but this will rarely be used now that Home weather display removed.
+        # Hot weather
         if temp_c is not None and temp_c >= 40.0:
             for fname in ["image (7).png", "image (7).jpg", "image (7).jpeg"]:
                 img = build_image_url(fname)
@@ -429,7 +450,20 @@ def render_mascot_inline(mascot: Optional[Dict[str, str]]):
         try:
             st.image(img, width=90)
         except Exception:
-            st.markdown("<div style='width:90px; height:90px; background:#f0f0f0; border-radius:12px;'></div>", unsafe_allow_html=True)
+            # Try local assets path format variants if remote failed
+            try:
+                # allow "assets/image (n).png"
+                if isinstance(img, str) and img.startswith("assets"):
+                    st.image(img, width=90)
+                else:
+                    # final fallback: local filename in assets folder
+                    local = Path("assets") / os.path.basename(img)
+                    if local.exists():
+                        st.image(str(local), width=90)
+                    else:
+                        raise
+            except Exception:
+                st.markdown("<div style='width:90px; height:90px; background:#f0f0f0; border-radius:12px;'></div>", unsafe_allow_html=True)
     with col_msg:
         st.markdown(
             f"""
@@ -592,40 +626,99 @@ def grade_quiz_and_explain(quiz, answers):
     return results, score
 
 # -------------------------------
-# RESET helper (clears user-entered inputs in session only)
+# RESET helper (robust)
 # -------------------------------
 def reset_page_inputs_session():
     """
     Clear session-only user inputs and ephemeral page-level values.
     Do NOT modify database (user_data) or credentials. Only session-level entries cleared.
+    Then rerun so Streamlit widgets reflect cleared state.
     """
-    # Keys we will clear if present in session_state
-    keys_to_reset = [
-        "water_input", "total_intake", "water_intake_log",
-        "quiz_answers", "quiz_submitted", "quiz_results", "quiz_score", "daily_quiz", "daily_quiz_date",
-        "chat_input", "chat_history", "show_chatbot",
-        "last_goal_completed_at"
-    ]
-    for k in keys_to_reset:
+    # Keep these session keys intact (auth + navigation)
+    preserve = {"logged_in", "username", "page"}
+
+    # Common keys to explicitly reset to defaults if present
+    explicit_defaults = {
+        "total_intake": 0.0,
+        "water_intake_log": [],
+        "chat_history": [],
+        "show_chatbot": False,
+        "last_goal_completed_at": None,
+        "quiz_answers": None,
+        "quiz_submitted": False,
+        "quiz_results": None,
+        "quiz_score": None,
+        "daily_quiz": None,
+        "daily_quiz_date": None,
+    }
+
+    # First apply explicit defaults
+    for k, v in explicit_defaults.items():
         if k in st.session_state:
-            # Reset sensible defaults
-            if isinstance(st.session_state[k], (int, float)):
-                st.session_state[k] = 0 if isinstance(st.session_state[k], int) else 0.0
-            elif isinstance(st.session_state[k], list):
+            st.session_state[k] = v
+
+    # Now scan other keys and clear typical widget-backed values
+    for k in list(st.session_state.keys()):
+        if k in preserve or k in explicit_defaults:
+            continue
+        # quiz radio keys are like q_0, q_1 ... clear them
+        if k.startswith("q_"):
+            try:
+                del st.session_state[k]
+            except Exception:
+                st.session_state[k] = None
+            continue
+        # common widget keys patterns used in your app
+        if k in {"water_input", "login_username", "login_password",
+                 "settings_name", "settings_age", "settings_country", "settings_language",
+                 "settings_height", "settings_weight", "settings_health_problems",
+                 "chat_input"}:
+            st.session_state[k] = ""  # clear text
+            continue
+        # numeric widget keys
+        if k in {"settings_height_unit", "settings_weight_unit", "water_profile_daily_goal"}:
+            # set to sensible defaults (0 or first option)
+            try:
+                st.session_state[k] = 0
+            except Exception:
+                st.session_state[k] = None
+            continue
+        # fallback cleanup by type
+        val = st.session_state.get(k)
+        try:
+            if isinstance(val, (int, float)):
+                st.session_state[k] = 0 if isinstance(val, int) else 0.0
+            elif isinstance(val, str):
+                st.session_state[k] = ""
+            elif isinstance(val, list):
                 st.session_state[k] = []
-            elif isinstance(st.session_state[k], dict):
+            elif isinstance(val, dict):
                 st.session_state[k] = {}
             else:
-                st.session_state[k] = None
+                # try delete unknown types to avoid stale state
+                try:
+                    del st.session_state[k]
+                except Exception:
+                    st.session_state[k] = None
+        except Exception:
+            # if anything fails, try delete
+            try:
+                del st.session_state[k]
+            except Exception:
+                pass
 
-    # Keep logged_in, username, page intact.
-    # After clearing, ensure some defaults exist
+    # Ensure required defaults exist after cleanup
     if "total_intake" not in st.session_state or st.session_state.get("total_intake") is None:
         st.session_state.total_intake = 0.0
     if "water_intake_log" not in st.session_state or st.session_state.get("water_intake_log") is None:
         st.session_state.water_intake_log = []
     if "chat_history" not in st.session_state or st.session_state.get("chat_history") is None:
         st.session_state.chat_history = []
+    if "show_chatbot" not in st.session_state:
+        st.session_state.show_chatbot = False
+
+    # Rerun to reflect cleared widgets
+    st.experimental_rerun()
 
 # -------------------------------
 # LOGIN PAGE
@@ -690,7 +783,7 @@ if st.session_state.page == "login":
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_login"):
         reset_page_inputs_session()
-        st.success("Page inputs cleared.")
+        # st.experimental_rerun() is called inside reset function
 
 # -------------------------------
 # PERSONAL SETTINGS PAGE (unchanged behaviour)
@@ -818,7 +911,6 @@ elif st.session_state.page == "settings":
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_settings"):
         reset_page_inputs_session()
-        st.success("Page inputs cleared.")
 
 # -------------------------------
 # WATER INTAKE PAGE
@@ -855,7 +947,6 @@ elif st.session_state.page == "water_profile":
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_water_profile"):
         reset_page_inputs_session()
-        st.success("Page inputs cleared.")
 
 # -------------------------------
 # HOME PAGE (persistent bottle + auto-reset at midnight)
@@ -880,23 +971,8 @@ elif st.session_state.page == "home":
     
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
 
-    # NOTE: Weather display removed per request. Instead: show the weather mascot image (image (7).png)
-    # only between 13:40 and 14:30 (Asia/Kolkata).
-    india_tz = pytz.timezone("Asia/Kolkata")
-    now_t = datetime.now(india_tz).time()
-    try:
-        if time_in_range(dtime(13, 40), dtime(14, 30), now_t):
-            # show weather mascot image in the same spot
-            try:
-                st.image(build_image_url("image (7).png"), width=160)
-            except Exception:
-                # fallback to local name or alternative extension if any
-                try:
-                    st.image(build_image_url("image (7).jpg"), width=160)
-                except Exception:
-                    pass
-    except Exception:
-        pass
+    # Home mascot: special-case already handled in choose_mascot_and_message
+    # (we removed the separate temperature display per request)
 
     fill_percent = min(st.session_state.total_intake / daily_goal, 1.0) if daily_goal > 0 else 0
     
@@ -1110,7 +1186,6 @@ elif st.session_state.page == "home":
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_home"):
         reset_page_inputs_session()
-        st.success("Page inputs cleared.")
 
 # -------------------------------
 # QUIZ PAGE
@@ -1226,7 +1301,6 @@ elif st.session_state.page == "quiz":
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_quiz"):
         reset_page_inputs_session()
-        st.success("Page inputs cleared.")
 
 # -------------------------------
 # REPORT PAGE (no mascot)
@@ -1367,6 +1441,7 @@ elif st.session_state.page == "report":
     fig_week.update_layout(yaxis={'title': 'Completion %', 'range': [0, 100]}, showlegend=False,
                             margin=dict(l=20, r=20, t=20, b=40), height=340,
                             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    # allow zoom but note instructs user how to zoom out
     st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': True})
 
     # Report note about zoom behavior (requested)
