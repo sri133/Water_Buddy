@@ -1,6 +1,6 @@
 # app.py
 # Full Water Buddy app with mascots and Quiz page (single-file)
-# Modified: added robust reset, home mascot time-window fix, notes, removed home weather display.
+# Updated: fixed reset crash, removed Home weather display, Home mascot special-case (13:40-14:30 IST)
 
 import streamlit as st
 import json
@@ -31,8 +31,7 @@ else:
     api_key = os.getenv("GOOGLE_API_KEY")
 
 if not api_key:
-    # If you host without model, the app still works — model-based features will fallback.
-    st.warning("⚠️ GOOGLE_API_KEY not found in secrets or .env. Gemini features will be disabled.")
+    st.warning("⚠️ GOOGLE_API_KEY not found. Gemini features will be disabled.")
     model = None
 else:
     try:
@@ -269,7 +268,7 @@ def get_current_temperature_c(lat: float, lon: float) -> Optional[float]:
     return None
 
 def read_current_temperature_c() -> Optional[float]:
-    # override via secrets/env if provided (useful in hosting)
+    # This helper is left for compatibility with other logic, but Home no longer displays temperature.
     try:
         if "CURRENT_TEMPERATURE_C" in st.secrets:
             return float(st.secrets["CURRENT_TEMPERATURE_C"])
@@ -281,7 +280,6 @@ def read_current_temperature_c() -> Optional[float]:
             return float(t)
     except Exception:
         pass
-    # else try automatic fetch via IP -> open-meteo
     loc = get_location_from_ip()
     if loc:
         return get_current_temperature_c(loc["lat"], loc["lon"])
@@ -364,16 +362,19 @@ def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, st
     if page == "home":
         try:
             if time_in_range(dtime(13, 40), dtime(14, 30), t):
-                # try local assets path first
-                local_path = Path("assets") / "image (7).png"
-                if local_path.exists():
-                    img = str(local_path)
-                else:
+                # try local assets path variants first
+                candidates = [Path("assets") / "image (7).png", Path("assets") / "image(7).png"]
+                chosen = None
+                for p in candidates:
+                    if p.exists():
+                        chosen = str(p)
+                        break
+                if not chosen:
                     # fallback to remote build_image_url
-                    img = build_image_url("image (7).png")
+                    chosen = build_image_url("image (7).png")
                 context = "Special midday mascot for hydration reminder."
                 msg = ask_gemini_for_message(context, "Midday reminder — have a refreshing sip of water!")
-                return {"image": img, "message": msg, "id": "special_midday"}
+                return {"image": chosen, "message": msg, "id": "special_midday"}
         except Exception:
             pass
 
@@ -407,7 +408,7 @@ def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, st
             msg = ask_gemini_for_message(context, "⏰ Time for a sip! A quick drink will keep you on track for your daily goal.")
             return {"image": img, "message": msg, "id": "reminder"}
 
-        # Hot weather
+        # Hot weather (kept for logic, but Home doesn't show temperature)
         if temp_c is not None and temp_c >= 40.0:
             for fname in ["image (7).png", "image (7).jpg", "image (7).jpeg"]:
                 img = build_image_url(fname)
@@ -450,18 +451,13 @@ def render_mascot_inline(mascot: Optional[Dict[str, str]]):
         try:
             st.image(img, width=90)
         except Exception:
-            # Try local assets path format variants if remote failed
             try:
-                # allow "assets/image (n).png"
-                if isinstance(img, str) and img.startswith("assets"):
-                    st.image(img, width=90)
+                # try local assets fallback
+                local = Path("assets") / os.path.basename(img)
+                if local.exists():
+                    st.image(str(local), width=90)
                 else:
-                    # final fallback: local filename in assets folder
-                    local = Path("assets") / os.path.basename(img)
-                    if local.exists():
-                        st.image(str(local), width=90)
-                    else:
-                        raise
+                    raise
             except Exception:
                 st.markdown("<div style='width:90px; height:90px; background:#f0f0f0; border-radius:12px;'></div>", unsafe_allow_html=True)
     with col_msg:
@@ -483,7 +479,7 @@ def render_mascot_inline(mascot: Optional[Dict[str, str]]):
         )
 
 # -------------------------------
-# Quiz utilities
+# Quiz utilities (unchanged)
 # -------------------------------
 def generate_quiz_via_model():
     """Ask Gemini to generate 10 MCQ questions in JSON format."""
@@ -491,8 +487,6 @@ def generate_quiz_via_model():
     try:
         if not model:
             return fallback
-        # Prompt asks model to produce a JSON array of 10 objects like:
-        # [{ "q": "...", "options": ["A","B","C","D"], "correct_index": 1, "explanation": "..." }, ...]
         prompt = """
 Generate 10 multiple-choice questions about water (health/hydration facts, water history, and recent water-related news/documentaries).
 Return as valid JSON array only. Each item must be an object with fields:
@@ -504,14 +498,10 @@ Keep each question concise and suitable for general audience.
 """
         resp = model.generate_content(prompt)
         text = resp.text.strip()
-        # Try to parse JSON out of model output
-        # Model should output JSON only; handle if it has backticks or text around JSON
         json_start = text.find("[")
         json_text = text if json_start == 0 else text[json_start:]
         data = json.loads(json_text)
-        # Basic validation
         if isinstance(data, list) and len(data) >= 10:
-            # Normalize to 10 items exactly
             return data[:10]
         else:
             return fallback
@@ -519,7 +509,6 @@ Keep each question concise and suitable for general audience.
         return fallback
 
 def generate_quiz_fallback():
-    # A safe fallback with 10 sample questions (simple).
     sample = [
         {
             "q": "What percentage of the adult human body is roughly water?",
@@ -586,21 +575,14 @@ def generate_quiz_fallback():
 
 def get_daily_quiz():
     today_str = date.today().isoformat()
-    # Store in session_state to avoid regen mid-day and reduce cost calls
     if st.session_state.get("daily_quiz_date") == today_str and st.session_state.get("daily_quiz"):
         return st.session_state["daily_quiz"]
-    # Otherwise: generate via model (if possible) or fallback
     quiz = generate_quiz_via_model()
     st.session_state["daily_quiz_date"] = today_str
     st.session_state["daily_quiz"] = quiz
     return quiz
 
 def grade_quiz_and_explain(quiz, answers):
-    """
-    quiz: list of items (q/options/correct_index/explanation maybe)
-    answers: list of selected index ints
-    returns results list and score
-    """
     results = []
     score = 0
     for i, item in enumerate(quiz):
@@ -609,10 +591,8 @@ def grade_quiz_and_explain(quiz, answers):
         is_correct = (selected == correct)
         if is_correct:
             score += 1
-        # explanation: use provided explanation if present; otherwise generate via Gemini
         explanation = item.get("explanation")
         if not explanation:
-            # Ask gemini for short explanation for the correct answer
             context = f"Explain why the option '{item['options'][correct]}' is the correct answer for the question: {item['q']}"
             explanation = ask_gemini_for_message(context, "This is the correct answer because of established facts.")
         results.append({
@@ -626,98 +606,45 @@ def grade_quiz_and_explain(quiz, answers):
     return results, score
 
 # -------------------------------
-# RESET helper (robust)
+# RESET helper (safe, fixed)
 # -------------------------------
 def reset_page_inputs_session():
     """
-    Clear session-only user inputs and ephemeral page-level values.
+    Safely clear session-only user inputs and ephemeral page-level values.
     Do NOT modify database (user_data) or credentials. Only session-level entries cleared.
     Then rerun so Streamlit widgets reflect cleared state.
     """
-    # Keep these session keys intact (auth + navigation)
+    # Keys to preserve (auth & navigation)
     preserve = {"logged_in", "username", "page"}
+    # Collect keys to delete
+    keys_to_delete = [k for k in list(st.session_state.keys()) if k not in preserve]
 
-    # Common keys to explicitly reset to defaults if present
-    explicit_defaults = {
-        "total_intake": 0.0,
-        "water_intake_log": [],
-        "chat_history": [],
-        "show_chatbot": False,
-        "last_goal_completed_at": None,
-        "quiz_answers": None,
-        "quiz_submitted": False,
-        "quiz_results": None,
-        "quiz_score": None,
-        "daily_quiz": None,
-        "daily_quiz_date": None,
-    }
-
-    # First apply explicit defaults
-    for k, v in explicit_defaults.items():
-        if k in st.session_state:
-            st.session_state[k] = v
-
-    # Now scan other keys and clear typical widget-backed values
-    for k in list(st.session_state.keys()):
-        if k in preserve or k in explicit_defaults:
-            continue
-        # quiz radio keys are like q_0, q_1 ... clear them
-        if k.startswith("q_"):
-            try:
-                del st.session_state[k]
-            except Exception:
-                st.session_state[k] = None
-            continue
-        # common widget keys patterns used in your app
-        if k in {"water_input", "login_username", "login_password",
-                 "settings_name", "settings_age", "settings_country", "settings_language",
-                 "settings_height", "settings_weight", "settings_health_problems",
-                 "chat_input"}:
-            st.session_state[k] = ""  # clear text
-            continue
-        # numeric widget keys
-        if k in {"settings_height_unit", "settings_weight_unit", "water_profile_daily_goal"}:
-            # set to sensible defaults (0 or first option)
-            try:
-                st.session_state[k] = 0
-            except Exception:
-                st.session_state[k] = None
-            continue
-        # fallback cleanup by type
-        val = st.session_state.get(k)
+    for k in keys_to_delete:
         try:
-            if isinstance(val, (int, float)):
-                st.session_state[k] = 0 if isinstance(val, int) else 0.0
-            elif isinstance(val, str):
-                st.session_state[k] = ""
-            elif isinstance(val, list):
-                st.session_state[k] = []
-            elif isinstance(val, dict):
-                st.session_state[k] = {}
-            else:
-                # try delete unknown types to avoid stale state
-                try:
-                    del st.session_state[k]
-                except Exception:
-                    st.session_state[k] = None
+            del st.session_state[k]
         except Exception:
-            # if anything fails, try delete
-            try:
-                del st.session_state[k]
-            except Exception:
-                pass
+            # some Streamlit internal keys might be protected; skip them
+            pass
 
-    # Ensure required defaults exist after cleanup
-    if "total_intake" not in st.session_state or st.session_state.get("total_intake") is None:
-        st.session_state.total_intake = 0.0
-    if "water_intake_log" not in st.session_state or st.session_state.get("water_intake_log") is None:
-        st.session_state.water_intake_log = []
-    if "chat_history" not in st.session_state or st.session_state.get("chat_history") is None:
-        st.session_state.chat_history = []
-    if "show_chatbot" not in st.session_state:
-        st.session_state.show_chatbot = False
+    # Recreate important defaults (without assigning None where possible)
+    st.session_state.total_intake = 0.0
+    st.session_state.water_intake_log = []
+    st.session_state.chat_history = []
+    st.session_state.show_chatbot = False
+    # quiz defaults
+    st.session_state.quiz_answers = None
+    st.session_state.quiz_submitted = False
+    st.session_state.quiz_results = None
+    st.session_state.quiz_score = 0
+    st.session_state.daily_quiz = None
+    st.session_state.daily_quiz_date = None
+    # last_goal_completed_at might be absent; do not force None assignment if problematic
+    try:
+        st.session_state.last_goal_completed_at = None
+    except Exception:
+        pass
 
-    # Rerun to reflect cleared widgets
+    # Rerun app so widgets reflect cleared values
     st.experimental_rerun()
 
 # -------------------------------
@@ -783,7 +710,6 @@ if st.session_state.page == "login":
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_login"):
         reset_page_inputs_session()
-        # st.experimental_rerun() is called inside reset function
 
 # -------------------------------
 # PERSONAL SETTINGS PAGE (unchanged behaviour)
@@ -971,8 +897,8 @@ elif st.session_state.page == "home":
     
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
 
-    # Home mascot: special-case already handled in choose_mascot_and_message
-    # (we removed the separate temperature display per request)
+    # NOTE: Home temperature/weather removed per request.
+    # Mascot display is handled by choose_mascot_and_message (special-case between 13:40-14:30)
 
     fill_percent = min(st.session_state.total_intake / daily_goal, 1.0) if daily_goal > 0 else 0
     
@@ -1441,7 +1367,6 @@ elif st.session_state.page == "report":
     fig_week.update_layout(yaxis={'title': 'Completion %', 'range': [0, 100]}, showlegend=False,
                             margin=dict(l=20, r=20, t=20, b=40), height=340,
                             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-    # allow zoom but note instructs user how to zoom out
     st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': True})
 
     # Report note about zoom behavior (requested)
@@ -1634,6 +1559,5 @@ elif st.session_state.page == "daily_streak":
 # End of App
 # -------------------------------
 
-# Note: database connection remains open for app lifetime (Streamlit).
-# If you ever need to explicitly close it:
-# conn.close()
+# conn remains open for lifetime
+# conn.close()  # if needed
