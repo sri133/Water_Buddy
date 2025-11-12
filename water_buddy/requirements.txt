@@ -4,3 +4,7 @@ pycountry
 python-dotenv
 google-generativeai
 plotly
+numpy
+matplotlib
+datetime
+
