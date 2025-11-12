@@ -19,7 +19,6 @@ from urllib.parse import quote
 import requests
 import pytz
 from pathlib import Path
-import matplotlib.pyplot as plt  # <-- Added for weekly graph
 
 # -------------------------------
 # Load API key from .env or Streamlit Secrets
@@ -864,7 +863,6 @@ elif st.session_state.page == "settings":
             st.experimental_rerun()
         except Exception as e:
             st.error(f"⚠️ Could not reset personal data: {e}")
-
 # -------------------------------
 # WATER INTAKE PAGE
 # -------------------------------
@@ -1418,37 +1416,20 @@ elif st.session_state.page == "report":
     colors = [week_color_for_status(s) for s in status_list]
     df_week = pd.DataFrame({"label": labels, "pct": pct_list, "liters": liters_list, "status": status_list})
 
-    # -------------------------------
-    # Replace Plotly weekly chart with Matplotlib (only weekly graph)
-    # -------------------------------
-    fig, ax = plt.subplots(figsize=(8, 4))
-    bars = ax.bar(df_week["label"], df_week["pct"], color=colors)
-
-    # Add text labels above bars
-    for bar, pct in zip(bars, df_week["pct"]):
-        if pct > 0:
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 2,
-                f"{pct}%",
-                ha='center',
-                va='bottom',
-                fontsize=9,
-                fontweight='bold'
-            )
-
-    # Style the chart
-    ax.set_ylim(0, 110)
-    ax.set_ylabel("Completion %", fontsize=11)
-    ax.set_title("Weekly Progress (Mon → Sun) — Current Week", fontsize=13, pad=10, color="#1A73E8")
-    ax.grid(axis='y', linestyle='--', alpha=0.4)
-
-    # Make background transparent for better integration with Streamlit theme
-    fig.patch.set_alpha(0)
-    ax.set_facecolor("none")
-
-    # Show in Streamlit
-    st.pyplot(fig)
+    fig_week = go.Figure()
+    fig_week.add_trace(go.Bar(
+        x=df_week["label"],
+        y=df_week["pct"],
+        marker_color=colors,
+        text=[f"{v}%" if v > 0 else "" for v in df_week["pct"]],
+        textposition='outside',
+        hovertemplate="%{x}<br>%{y}%<br>Liters: %{customdata} L<extra></extra>",
+        customdata=[round(v,2) for v in df_week["liters"]]
+    ))
+    fig_week.update_layout(yaxis={'title': 'Completion %', 'range': [0, 100]}, showlegend=False,
+                            margin=dict(l=20, r=20, t=20, b=40), height=340,
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': True})
 
     # Report note about zoom behavior (requested)
     st.markdown(
