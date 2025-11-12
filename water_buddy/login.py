@@ -1561,3 +1561,4 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
