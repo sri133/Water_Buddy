@@ -837,7 +837,6 @@ elif st.session_state.page == "settings":
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_settings"):
         reset_page_inputs_session()
-
 # -------------------------------
 # WATER INTAKE PAGE
 # -------------------------------
@@ -1561,4 +1560,6 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
+
 
