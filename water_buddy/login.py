@@ -1,6 +1,6 @@
 # app.py
 # Full Water Buddy app with mascots and Quiz page (single-file)
-# Updated: remove login reset, add home bottle reset, change settings reset to clear personal fields
+# Updated: fixed reset crash, removed Home weather display, Home mascot special-case (13:40-14:30 IST)
 
 import streamlit as st
 import json
@@ -706,12 +706,13 @@ if st.session_state.page == "login":
         unsafe_allow_html=True
     )
 
-    # NOTE: reset button removed from login page per request
+    # Reset button (bottom) - clears page-level inputs
     st.markdown("<br>", unsafe_allow_html=True)
-
+    if st.button("🔄 Reset Page", key="reset_login"):
+        reset_page_inputs_session()
 
 # -------------------------------
-# PERSONAL SETTINGS PAGE
+# PERSONAL SETTINGS PAGE (unchanged behaviour)
 # -------------------------------
 elif st.session_state.page == "settings":
     if not st.session_state.logged_in:
@@ -720,23 +721,23 @@ elif st.session_state.page == "settings":
     username = st.session_state.username
     ensure_user_structures(username)
     saved = user_data.get(username, {}).get("profile", {})
-
+    
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Personal Settings</h1>", unsafe_allow_html=True)
-
+    
     name = st.text_input("Name", value=saved.get("Name", username), key="settings_name")
     age = st.text_input("Age", value=saved.get("Age", ""), key="settings_age")
     country = st.selectbox("Country", countries, index=countries.index(saved.get("Country", "India")) if saved.get("Country") else countries.index("India"), key="settings_country")
     language = st.text_input("Language", value=saved.get("Language", ""), key="settings_language")
-
+    
     st.write("---")
-
+    
     height_unit = st.radio("Height Unit", ["cm", "feet"], horizontal=True, key="settings_height_unit")
     height = st.number_input(
         f"Height ({height_unit})",
         value=float(saved.get("Height", "0").split()[0]) if "Height" in saved else 0.0,
         key="settings_height"
     )
-
+    
     weight_unit = st.radio("Weight Unit", ["kg", "lbs"], horizontal=True, key="settings_weight_unit")
     weight = st.number_input(
         f"Weight ({weight_unit})",
@@ -749,12 +750,12 @@ elif st.session_state.page == "settings":
             height_m = height * 0.3048
         else:
             height_m = height / 100
-
+            
         if weight_unit == "lbs":
             weight_kg = weight * 0.453592
         else:
             weight_kg = weight
-
+            
         return round(weight_kg / (height_m ** 2), 2) if height_m > 0 else 0
 
     bmi = calculate_bmi(weight, height, weight_unit, height_unit)
@@ -785,7 +786,7 @@ elif st.session_state.page == "settings":
 
     if st.button("Save & Continue ➡️"):
         recalc_needed = new_profile_data != old_profile
-
+        
         if recalc_needed:
             with st.spinner("🤖 Water Buddy is calculating your ideal water intake..."):
                 prompt = f"""
@@ -817,7 +818,7 @@ elif st.session_state.page == "settings":
         else:
             suggested_water_intake = user_data.get(username, {}).get("ai_water_goal", 2.5)
             text_output = "Profile unchanged — using previous goal."
-
+            
         ensure_user_structures(username)
         user_data[username]["profile"] = new_profile_data
         user_data[username]["ai_water_goal"] = round(suggested_water_intake, 2)
@@ -825,44 +826,18 @@ elif st.session_state.page == "settings":
         user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
         user_data[username].setdefault("daily_intake", user_data[username].get("daily_intake", {}))
         user_data[username].setdefault("weekly_data", user_data[username].get("weekly_data", {"week_start": None, "days": {}}))
-
+        
         save_user_data(user_data)
-
+        
         st.success(f"✅ Profile saved! Water Buddy suggests {suggested_water_intake:.2f} L/day 💧")
         st.info(f"Water Buddy output: {text_output}")
         go_to_page("water_profile")
 
-    # Reset personal profile button (clears saved personal fields to blank/0 and resets suggested goal/profile defaults)
+    # Reset button (bottom)
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🔄 Reset Personal Data", key="reset_personal_data"):
-        try:
-            # Clear profile fields in-memory and in DB
-            ensure_user_structures(username)
-            user_data[username]["profile"] = {}
-            # reset ai suggestion and water_profile defaults
-            user_data[username]["ai_water_goal"] = 2.5
-            user_data[username]["water_profile"] = {"daily_goal": 2.5, "frequency": "30 minutes"}
-            # Do not clear streaks, daily_intake, weekly_data, or credentials
-            save_user_data(user_data)
+    if st.button("🔄 Reset Page", key="reset_settings"):
+        reset_page_inputs_session()
 
-            # Also clear the page-level input widgets so the UI shows blanks/zeros after reset
-            st.session_state["settings_name"] = ""
-            st.session_state["settings_age"] = ""
-            # reset country back to India if available, else first option
-            default_country_index = countries.index("India") if "India" in countries else 0
-            st.session_state["settings_country"] = countries[default_country_index]
-            st.session_state["settings_language"] = ""
-            st.session_state["settings_height_unit"] = "cm"
-            st.session_state["settings_height"] = 0.0
-            st.session_state["settings_weight_unit"] = "kg"
-            st.session_state["settings_weight"] = 0.0
-            st.session_state["settings_health_condition"] = "Excellent"
-            st.session_state["settings_health_problems"] = ""
-
-            st.success("✅ Personal profile cleared (fields set to blank/0 and defaults restored).")
-            st.experimental_rerun()
-        except Exception as e:
-            st.error(f"⚠️ Could not reset personal data: {e}")
 # -------------------------------
 # WATER INTAKE PAGE
 # -------------------------------
@@ -877,24 +852,24 @@ elif st.session_state.page == "water_profile":
 
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Intake</h1>", unsafe_allow_html=True)
     st.success(f"Your ideal daily water intake is **{ai_goal} L/day**, as suggested by Water Buddy 💧")
-
+    
     daily_goal = st.slider("Set your daily water goal (L):", 0.5, 10.0, float(ai_goal), 0.1, key="water_profile_daily_goal")
-
+    
     frequency_options = [f"{i} minutes" for i in range(5, 185, 5)]
     selected_frequency = st.selectbox(
         "🔔 Reminder Frequency:",
         frequency_options,
-        index=frequency_options.index(saved.get("frequency", "30 minutes")) if saved.get("frequency") else frequency_options.index("30 minutes"),
+        index=frequency_options.index(saved.get("frequency", "30 minutes")),
         key="water_profile_frequency"
     )
-
+    
     if st.button("💾 Save & Continue ➡️"):
         user_data[username]["water_profile"] = {"daily_goal": daily_goal, "frequency": selected_frequency}
         save_user_data(user_data)
         st.success("✅ Water profile saved successfully!")
         go_to_page("home")
 
-    # Reset button (bottom) - keep page reset behavior intact for settings page reset action only if desired previously
+    # Reset button (bottom)
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_water_profile"):
         reset_page_inputs_session()
@@ -919,65 +894,28 @@ elif st.session_state.page == "home":
     daily_goal = user_data.get(username, {}).get("water_profile", {}).get(
         "daily_goal", user_data.get(username, {}).get("ai_water_goal", 2.5)
     )
-
+    
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
 
     # NOTE: Home temperature/weather removed per request.
     # Mascot display is handled by choose_mascot_and_message (special-case between 13:40-14:30)
 
     fill_percent = min(st.session_state.total_intake / daily_goal, 1.0) if daily_goal > 0 else 0
-
+    
     bottle_html = f"""
-    <div style='display:flex; align-items:center; justify-content:center; gap:14px;'>
-      <div style='width: 120px; height: 300px; border: 3px solid #1A73E8; border-radius: 20px; position: relative; margin: auto; 
-      background: linear-gradient(to top, #1A73E8 {fill_percent*100}%, #E0E0E0 {fill_percent*100}%);'>
-          <div style='position: absolute; bottom: 5px; width: 100%; text-align: center; color: #fff; font-weight: bold; font-size: 18px;'>
-              {round(st.session_state.total_intake,2)}L / {daily_goal}L
-          </div>
-      </div>
-    """
-
-    # Add Reset button beside the bottle animation — resets today's intake only
-    bottle_html += """
-      <div style='display:flex; flex-direction:column; align-items:center; justify-content:center;'>
-        <div style='font-size:13px; color:#666; margin-bottom:8px;'>Actions</div>
-      </div>
+    <div style='width: 120px; height: 300px; border: 3px solid #1A73E8; border-radius: 20px; position: relative; margin: auto; 
+    background: linear-gradient(to top, #1A73E8 {fill_percent*100}%, #E0E0E0 {fill_percent*100}%);'>
+        <div style='position: absolute; bottom: 5px; width: 100%; text-align: center; color: #fff; font-weight: bold; font-size: 18px;'>
+            {round(st.session_state.total_intake,2)}L / {daily_goal}L
+        </div>
     </div>
     """
     st.markdown(bottle_html, unsafe_allow_html=True)
-
-    # Reset today's intake button (placed visually below/near bottle)
-    if st.button("🔄 Reset Today's Intake (Empty Bottle)", key="reset_today_intake"):
-        try:
-            # Reset session state
-            st.session_state.total_intake = 0.0
-            st.session_state.water_intake_log = []
-
-            # Persist today's intake = 0 in DB for this user
-            ensure_user_structures(username)
-            user_data[username].setdefault("daily_intake", {})
-            user_data[username]["daily_intake"][today_str] = 0.0
-            user_data[username]["daily_intake"]["last_login_date"] = today_str
-
-            # Also update weekly_data today's entry to 0.0 so weekly graph shows empty for today
-            ensure_week_current(username)
-            user_data[username].setdefault("weekly_data", {"week_start": None, "days": {}})
-            user_data[username]["weekly_data"].setdefault("days", {})
-            user_data[username]["weekly_data"]["days"][today_str] = 0.0
-
-            save_user_data(user_data)
-
-            # Do not touch streaks
-            st.success("✅ Today's intake has been reset — the bottle is now empty.")
-            # rerun to refresh UI and graphs
-            st.experimental_rerun()
-        except Exception as e:
-            st.error(f"⚠️ Could not reset today's intake: {e}")
-
+    
     st.write("---")
-
+    
     water_input = st.text_input("Enter water amount (in ml):", key="water_input")
-
+    
     if st.button("➕ Add Water"):
         value = re.sub("[^0-9.]", "", water_input).strip()
         if value:
@@ -987,7 +925,7 @@ elif st.session_state.page == "home":
                 st.session_state.total_intake += liters
                 st.session_state.water_intake_log.append(f"{ml} ml")
                 st.success(f"✅ Added {ml} ml of water!")
-
+                
                 # Persist today's total intake (only update daily_intake and weekly_data)
                 ensure_user_structures(username)
                 user_data[username].setdefault("daily_intake", {})
@@ -1005,14 +943,14 @@ elif st.session_state.page == "home":
                 # Update streak info (unchanged logic)
                 user_streak = user_data[username]["streak"]
                 daily_goal_for_checks = user_data[username]["water_profile"].get("daily_goal", 2.5)
-
+                
                 if st.session_state.total_intake >= daily_goal_for_checks:
                     if today_str not in user_streak.get("completed_days", []):
                         user_streak.setdefault("completed_days", []).append(today_str)
                         user_streak["completed_days"] = sorted(list(set(user_streak["completed_days"])))
-
+                        
                         completed_dates = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in user_streak["completed_days"]])
-
+                        
                         streak = 0
                         day_cursor = date.today()
                         while True:
@@ -1021,22 +959,22 @@ elif st.session_state.page == "home":
                                 day_cursor = day_cursor - timedelta(days=1)
                             else:
                                 break
-
+                        
                         user_streak["current_streak"] = streak
                         user_data[username]["streak"] = user_streak
 
                 # Save user_data after modifications
                 save_user_data(user_data)
-
+                
                 # Trigger post-goal mascot: set session timestamp when user first completes
                 if st.session_state.total_intake >= daily_goal:
                     if not st.session_state.last_goal_completed_at:
                         st.session_state.last_goal_completed_at = datetime.now().isoformat()
-
+                
                 # Rerun to refresh UI
                 st.rerun()
                 st.stop()
-
+                
             except ValueError:
                 st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
         else:
@@ -1046,11 +984,11 @@ elif st.session_state.page == "home":
         st.write("### Today's Log:")
         for i, entry in enumerate(st.session_state.water_intake_log, 1):
             st.write(f"{i}. {entry}")
-
+            
     st.write("---")
-
+    
     col1, col2, col3, col4, col5 = st.columns(5)
-
+    
     with col1:
         if st.button("👤 Personal Settings"):
             go_to_page("settings")
@@ -1138,13 +1076,13 @@ elif st.session_state.page == "home":
                 💬 Water Buddy <span style='font-size:14px; color:#555;'>— powered by Gemini 2.5 Flash</span>
             </div>
             """, unsafe_allow_html=True)
-
+            
             for entry in st.session_state.chat_history:
                 if entry["sender"] == "bot":
                     st.markdown(f"<div class='bot-message'>🤖 {entry['text']}</div>", unsafe_allow_html=True)
-
+            
             user_msg = st.text_input("Type your message...", key="chat_input")
-
+            
             if st.button("Send", key="send_btn"):
                 if user_msg.strip():
                     try:
@@ -1156,7 +1094,7 @@ elif st.session_state.page == "home":
                             reply = "⚠️ Chatbot not configured currently."
                     except Exception:
                         reply = "⚠️ Sorry, I’m having trouble connecting right now."
-
+                    
                     st.session_state.chat_history.append({"sender": "bot", "text": reply})
                     st.rerun()
 
@@ -1312,7 +1250,7 @@ elif st.session_state.page == "report":
             completed_dates.append(d)
         except Exception:
             continue
-
+    
     today = date.today()
     daily_goal = user_data[username]["water_profile"].get("daily_goal", user_data[username].get("ai_water_goal", 2.5))
 
@@ -1553,7 +1491,7 @@ elif st.session_state.page == "daily_streak":
         try:
             sel_date = datetime.strptime(selected_day_param, "%Y-%m-%d").date()
             sel_day_num = sel_date.day
-
+            
             if sel_date > today:
                 status_txt = "upcoming"
             else:
@@ -1561,17 +1499,17 @@ elif st.session_state.page == "daily_streak":
 
             card_html = "<div class='slide-card' style='position: fixed; left:50%; transform: translateX(-50%); bottom:18px; width:340px; max-width:92%; background:linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,250,250,0.98)); color:#111; border-radius:12px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); padding:14px 16px; z-index:2000;'>"
             card_html += f"<h4 style='margin:0 0 6px 0; font-size:16px;'>Day {sel_day_num} — {sel_date.strftime('%b %d, %Y')}</h4>"
-
+            
             if status_txt == "achieved":
                 card_html += "<p.style='margin:0; font-size:14px; color:#333;'>🎉 Goal completed on this day! Great job.</p>"
             elif status_txt == "upcoming":
                 card_html += "<p style='margin:0; font-size:14px; color:#333;'>⏳ This day is upcoming — no data yet.</p>"
             else:
                 card_html += "<p style='margin:0; font-size:14px; color:#333;'>💧 Goal missed on this day. Keep trying — tomorrow is new!</p>"
-
+                
             card_html += "<div><span class='close-btn' style='display:inline-block; margin-top:10px; color:#1A73E8; text-decoration:none; font-weight:600; cursor:pointer;' onclick=\"history.replaceState(null, '', window.location.pathname);\">Close</span></div>"
             card_html += "</div>"
-
+            
             js_hide_on_scroll = """
             <script>
             (function(){
@@ -1585,7 +1523,7 @@ elif st.session_state.page == "daily_streak":
             })();
             </script>
             """
-
+            
             st.markdown(card_html + js_hide_on_scroll, unsafe_allow_html=True)
         except Exception:
             pass
@@ -1623,3 +1561,4 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
