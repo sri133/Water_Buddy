@@ -786,39 +786,56 @@ elif st.session_state.page == "settings":
 
     if st.button("Save & Continue ➡️"):
         recalc_needed = new_profile_data != old_profile
-        
+
+        suggested_water_intake = user_data.get(username, {}).get("ai_water_goal", 2.5)
+        text_output = ""
+
         if recalc_needed:
             with st.spinner("🤖 Water Buddy is calculating your ideal water intake..."):
                 prompt = f"""
-                You are Water Buddy, a smart hydration assistant.
-                Based on the following personal health information, suggest an ideal daily water intake goal in liters.
-                Only return a single numeric value in liters (no text, no units).
-                Age: {age}
-                Height: {height} {height_unit}
-                Weight: {weight} {weight_unit}
-                BMI: {bmi}
-                Health condition: {health_condition}
-                Health problems: {health_problems if health_problems else 'None'}
-                """
+You are Water Buddy, a smart hydration assistant.
+Based on this user's personal health information, calculate and return ONLY a JSON object with one key:
+"goal_liters": <number of liters per day>
+
+Example: {{"goal_liters": 3.2}}
+
+Do not include any text or explanation outside JSON.
+
+User Info:
+- Age: {age}
+- Height: {height} {height_unit}
+- Weight: {weight} {weight_unit}
+- BMI: {bmi}
+- Health condition: {health_condition}
+- Health problems: {health_problems if health_problems else "None"}
+"""
+
                 try:
                     if model:
                         response = model.generate_content(prompt)
                         text_output = response.text.strip()
-                        match = re.search(r"(\d+(\.\d+)?)", text_output)
-                        if match:
-                            suggested_water_intake = float(match.group(1))
+
+                        # Try parsing JSON first
+                        match_json = re.search(r'\{.*\}', text_output)
+                        if match_json:
+                            data = json.loads(match_json.group(0))
+                            suggested_water_intake = float(data.get("goal_liters", 2.5))
                         else:
-                            raise ValueError("No numeric value found.")
+                            # Fallback: extract number from plain text
+                            match_num = re.search(r"(\d+(\.\d+)?)", text_output)
+                            if match_num:
+                                suggested_water_intake = float(match_num.group(1))
+                            else:
+                                raise ValueError("No numeric value found in Gemini output.")
                     else:
-                        raise RuntimeError("Model not configured")
+                        raise RuntimeError("Gemini model not configured")
                 except Exception as e:
-                    st.warning(f"⚠️ Water Buddy suggestion failed, using default 2.5 L ({e})")
+                    st.warning(f"⚠️ Water Buddy suggestion failed — using default 2.5 L ({e})")
                     suggested_water_intake = 2.5
                     text_output = f"Error: {e}"
         else:
-            suggested_water_intake = user_data.get(username, {}).get("ai_water_goal", 2.5)
             text_output = "Profile unchanged — using previous goal."
-            
+
         ensure_user_structures(username)
         user_data[username]["profile"] = new_profile_data
         user_data[username]["ai_water_goal"] = round(suggested_water_intake, 2)
