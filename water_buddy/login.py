@@ -1414,7 +1414,7 @@ elif st.session_state.page == "report":
             go_to_page("daily_streak")
 
 # -------------------------------
-# DAILY STREAK PAGE
+# DAILY STREAK PAGE (with medals)
 # -------------------------------
 elif st.session_state.page == "daily_streak":
     if not st.session_state.logged_in:
@@ -1438,6 +1438,29 @@ elif st.session_state.page == "daily_streak":
         except Exception:
             continue
 
+    # ------------------- Medal Unlocks -------------------
+    medals = [
+        {"name": "Bronze", "days_required": 3, "icon": "🥉"},
+        {"name": "Silver", "days_required": 7, "icon": "🥈"},
+        {"name": "Gold", "days_required": 14, "icon": "🥇"},
+    ]
+
+    st.markdown("<h3 style='text-align:center; color:#1A73E8;'>🏅 Medal Achievements</h3>", unsafe_allow_html=True)
+
+    medal_html = "<div style='display:flex; justify-content:center; gap:20px; margin-bottom:20px;'>"
+
+    for medal in medals:
+        if current_streak >= medal["days_required"]:
+            # unlocked medal
+            medal_html += f"<div style='text-align:center; font-size:36px;' title='{medal['name']} Medal Unlocked!'>{medal['icon']}</div>"
+        else:
+            # locked medal (dimmed)
+            medal_html += f"<div style='text-align:center; font-size:36px; color:lightgray;' title='{medal['name']} Medal Locked'>{medal['icon']}</div>"
+
+    medal_html += "</div>"
+    st.markdown(medal_html, unsafe_allow_html=True)
+
+    # ------------------- Stars Grid -------------------
     star_css = """
     <style>
     .star-grid {
@@ -1518,7 +1541,7 @@ elif st.session_state.page == "daily_streak":
             card_html += f"<h4 style='margin:0 0 6px 0; font-size:16px;'>Day {sel_day_num} — {sel_date.strftime('%b %d, %Y')}</h4>"
             
             if status_txt == "achieved":
-                card_html += "<p.style='margin:0; font-size:14px; color:#333;'>🎉 Goal completed on this day! Great job.</p>"
+                card_html += "<p style='margin:0; font-size:14px; color:#333;'>🎉 Goal completed on this day! Great job.</p>"
             elif status_txt == "upcoming":
                 card_html += "<p style='margin:0; font-size:14px; color:#333;'>⏳ This day is upcoming — no data yet.</p>"
             else:
@@ -1572,10 +1595,12 @@ elif st.session_state.page == "daily_streak":
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
 
+
 # -------------------------------
 # End of App
 # -------------------------------
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
