@@ -1,4 +1,3 @@
-
 # app.py
 # Full Water Buddy app with mascots and Quiz page (single-file)
 # Updated: fixed reset crash, removed Home weather display, Home mascot special-case (13:40-14:30 IST)
@@ -1579,3 +1578,4 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
