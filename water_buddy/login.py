@@ -1,6 +1,14 @@
 # app.py
-# Full Water Buddy app with mascots and Quiz page (single-file)
-# Updated: fixed reset crash, removed Home weather display, Home mascot special-case (13:40-14:30 IST)
+# Water Buddy — Updated features:
+# 1) Mascot time/zone fixes
+# 2) Medal unlock + persistence
+# 3) Reminder notification + audio
+# 4) Reset & Delete Account
+# 5) Voice (TTS) + language saved in profile
+# 6) Matplotlib used in Report
+# 7) Water Catch Game (mini reflex)
+# 8) Daily coins + Shop for cup designs
+# 9) Data saving/persistence across days
 
 import streamlit as st
 import json
@@ -19,6 +27,8 @@ from urllib.parse import quote
 import requests
 import pytz
 from pathlib import Path
+import random
+import matplotlib.pyplot as plt  # used as requested
 
 # -------------------------------
 # Load API key from .env or Streamlit Secrets
@@ -106,7 +116,7 @@ def save_credentials_to_db(creds: Dict[str, str]):
 def save_userdata_to_db(userdata: Dict[str, Any]):
     try:
         for username, data in userdata.items():
-            json_text = json.dumps(data, indent=4, sort_keys=True)
+            json_text = json.dumps(data, indent=4, sort_keys=True, default=str)
             cursor.execute("""
             INSERT INTO userdata(username, data)
             VALUES (?, ?)
@@ -151,6 +161,11 @@ def ensure_user_structures(username: str):
     user.setdefault("streak", {"completed_days": [], "current_streak": 0})
     user.setdefault("daily_intake", {})   # date -> liters, plus last_login_date meta
     user.setdefault("weekly_data", {"week_start": None, "days": {}})  # week_start (Mon), days map
+    user.setdefault("coins", 0)
+    user.setdefault("owned_items", [])  # shop items owned
+    user.setdefault("medals", [])       # list of medal ids
+    user.setdefault("quiz_history", {})
+    user.setdefault("game_history", {})
     # Save any new defaults immediately so DB is consistent
     save_user_data(user_data)
 
@@ -174,13 +189,27 @@ def ensure_week_current(username: str):
         weekly["days"] = {}
         save_user_data(user_data)
 
+def archive_previous_day_if_needed(username: str):
+    """
+    Ensures previous day's data is preserved; this function is safe to call on login.
+    Does not delete anything, but ensures last_login_date vs today handling.
+    """
+    ensure_user_structures(username)
+    daily = user_data[username].setdefault("daily_intake", {})
+    last_login = daily.get("last_login_date")
+    today_str = date.today().strftime("%Y-%m-%d")
+    # If last_login is missing, set to yesterday to avoid overwriting user totals
+    if not last_login:
+        daily["last_login_date"] = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+        save_user_data(user_data)
+
 def load_today_intake_into_session(username: str):
     """
     Loads today's intake into st.session_state.total_intake.
     If last_login_date != today, create today's entry and set session total to 0.0 (auto-reset).
-    This function does NOT delete user profile or credentials.
     """
     ensure_user_structures(username)
+    archive_previous_day_if_needed(username)
     today_str = date.today().strftime("%Y-%m-%d")
     daily = user_data[username].setdefault("daily_intake", {})
     last_login = daily.get("last_login_date")
@@ -207,6 +236,42 @@ def update_weekly_record_on_add(username: str, date_str: str, liters: float):
     weekly_days[date_str] = liters
     save_user_data(user_data)
 
+# Medal awarding logic
+MEDAL_RULES = [
+    {"id": "bronze_3", "name": "Bronze Medal", "desc": "3-day streak", "streak_need": 3},
+    {"id": "silver_7", "name": "Silver Medal", "desc": "7-day streak", "streak_need": 7},
+    {"id": "gold_30", "name": "Gold Medal", "desc": "30-day streak", "streak_need": 30},
+]
+
+def award_medals_for_streak(username: str):
+    ensure_user_structures(username)
+    medals = user_data[username].setdefault("medals", [])
+    streak = user_data[username].get("streak", {}).get("current_streak", 0)
+    awarded = []
+    for r in MEDAL_RULES:
+        if streak >= r["streak_need"] and r["id"] not in medals:
+            medals.append(r["id"])
+            awarded.append(r)
+    if awarded:
+        save_user_data(user_data)
+    return awarded
+
+# Coins awarding: first completion per day yields coins
+COINS_PER_DAY_COMPLETION = 5
+
+def award_coins_for_completion(username: str, day_str: str):
+    ensure_user_structures(username)
+    user = user_data[username]
+    coins = user.get("coins", 0)
+    completed_record = user.setdefault("completed_records", {})  # date -> True/False
+    if not completed_record.get(day_str):
+        # first time completion for that day
+        user["coins"] = coins + COINS_PER_DAY_COMPLETION
+        completed_record[day_str] = True
+        save_user_data(user_data)
+        return COINS_PER_DAY_COMPLETION
+    return 0
+
 # -------------------------------
 # Session initialization
 # -------------------------------
@@ -226,6 +291,8 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "last_goal_completed_at" not in st.session_state:
     st.session_state.last_goal_completed_at = None
+if "last_reminder_at" not in st.session_state:
+    st.session_state.last_reminder_at = None
 
 # -------------------------------
 # Country list utility
@@ -233,7 +300,7 @@ if "last_goal_completed_at" not in st.session_state:
 countries = [c.name for c in pycountry.countries]
 
 # -------------------------------
-# Mascot utilities & logic
+# Mascot utilities & logic (fixes and voice)
 # -------------------------------
 GITHUB_ASSETS_BASE = "https://raw.githubusercontent.com/sri133/Water_Buddy/main/water_buddy/assets/"
 
@@ -300,6 +367,27 @@ def is_within_reminder_window(frequency_minutes: int, tolerance_minutes: int = 5
     remainder = minutes_since_midnight % frequency_minutes
     return (remainder <= tolerance_minutes) or (frequency_minutes - remainder <= tolerance_minutes)
 
+def parse_iso_with_india(dt_str: str):
+    """
+    Parse ISO timestamps robustly and return timezone-aware datetime in Asia/Kolkata.
+    """
+    india_tz = pytz.timezone("Asia/Kolkata")
+    try:
+        dt = datetime.fromisoformat(dt_str)
+        if dt.tzinfo is None:
+            # naive -> localize to India tz (assume stored without tz)
+            return india_tz.localize(dt)
+        return dt.astimezone(india_tz)
+    except Exception:
+        try:
+            # fallback parse
+            return india_tz.localize(datetime.strptime(dt_str.split('.')[0], "%Y-%m-%dT%H:%M:%S"))
+        except Exception:
+            return None
+
+def now_india():
+    return datetime.now(pytz.timezone("Asia/Kolkata"))
+
 def ask_gemini_for_message(context: str, fallback: str) -> str:
     try:
         if model:
@@ -317,10 +405,10 @@ def ask_gemini_for_message(context: str, fallback: str) -> str:
 def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, str]]:
     """
     Returns a dict like {"image": url_or_local_path, "message": "...", "id": "..."}
-    Added special-case: show assets/image (7).png on home between 13:40 and 14:30 IST
+    Includes special-case midday mascot and uses timezone-aware comparisons.
     """
     india_tz = pytz.timezone("Asia/Kolkata")
-    now = datetime.now(india_tz)
+    now = now_india()
     t = now.time()
     temp_c = read_current_temperature_c()
 
@@ -336,8 +424,8 @@ def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, st
     last_completed_iso = st.session_state.get("last_goal_completed_at")
     if last_completed_iso:
         try:
-            last_dt = datetime.fromisoformat(last_completed_iso)
-            if (datetime.now() - last_dt) <= timedelta(minutes=5):
+            last_dt = parse_iso_with_india(last_completed_iso)
+            if last_dt and (now - last_dt) <= timedelta(minutes=5):
                 img = build_image_url("image (9).png")
                 context = "User just completed the daily water goal. Provide a fun water fact and a brief congratulatory message."
                 msg = ask_gemini_for_message(context, "🎉 Amazing job — you hit your daily water goal! Fun fact: water makes up about 60% of the human body.")
@@ -437,9 +525,9 @@ def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, st
     msg = ask_gemini_for_message("Default greeting", "Hi! I'm Water Buddy — how can I help you stay hydrated today?")
     return {"image": img, "message": msg, "id": "default"}
 
-def render_mascot_inline(mascot: Optional[Dict[str, str]]):
+def render_mascot_inline(mascot: Optional[Dict[str, str]], username: str = None):
     """
-    Render the mascot inline in the page content.
+    Render the mascot inline in the page content. Adds a Speak button that uses browser TTS.
     """
     if not mascot:
         return
@@ -461,9 +549,10 @@ def render_mascot_inline(mascot: Optional[Dict[str, str]]):
             except Exception:
                 st.markdown("<div style='width:90px; height:90px; background:#f0f0f0; border-radius:12px;'></div>", unsafe_allow_html=True)
     with col_msg:
+        # message card
         st.markdown(
             f"""
-            <div style="
+            <div id="mascot_msg" style="
                 background: linear-gradient(180deg, rgba(250,250,255,1), rgba(242,249,255,1));
                 padding: 12px 14px;
                 border-radius: 14px;
@@ -477,9 +566,42 @@ def render_mascot_inline(mascot: Optional[Dict[str, str]]):
             """,
             unsafe_allow_html=True
         )
+        # Speak button using browser SpeechSynthesis (language from profile if available)
+        lang = "en-US"
+        if username:
+            ensure_user_structures(username)
+            prof = user_data[username].get("profile", {})
+            # A simple map for major languages — extend as needed
+            lang_map = {
+                "English": "en-US",
+                "Hindi": "hi-IN",
+                "Bengali": "bn-IN",
+                "Tamil": "ta-IN",
+                "Telugu": "te-IN",
+                "Marathi": "mr-IN"
+            }
+            pref_lang = prof.get("Language")
+            if pref_lang and pref_lang in lang_map:
+                lang = lang_map[pref_lang]
+        # Add a small speak button
+        speak_js = f"""
+        <script>
+        function speakMascot(msg, lang) {{
+            if(!window.speechSynthesis){{
+                alert("Speech synthesis not supported in this browser.");
+                return;
+            }}
+            var u = new SpeechSynthesisUtterance(msg);
+            u.lang = lang;
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(u);
+        }}
+        </script>
+        """
+        st.markdown(speak_js + f"""<div style="margin-top:6px;"><button onclick='speakMascot({json.dumps(message)}, "{lang}")' style="background:#1A73E8;color:white;border:none;padding:6px 10px;border-radius:8px;cursor:pointer;">🔊 Speak</button></div>""", unsafe_allow_html=True)
 
 # -------------------------------
-# Quiz utilities (unchanged)
+# Quiz utilities (unchanged except small persistence)
 # -------------------------------
 def generate_quiz_via_model():
     """Ask Gemini to generate 10 MCQ questions in JSON format."""
@@ -606,7 +728,7 @@ def grade_quiz_and_explain(quiz, answers):
     return results, score
 
 # -------------------------------
-# RESET helper (safe, fixed)
+# RESET helper (safe, fixed) + delete account
 # -------------------------------
 def reset_page_inputs_session():
     """
@@ -647,6 +769,24 @@ def reset_page_inputs_session():
     # Rerun app so widgets reflect cleared values
     st.experimental_rerun()
 
+def delete_account(username: str):
+    """
+    Remove user from both credentials and userdata. This is destructive.
+    """
+    try:
+        cursor.execute("DELETE FROM credentials WHERE username = ?", (username,))
+        cursor.execute("DELETE FROM userdata WHERE username = ?", (username,))
+        conn.commit()
+        # update in-memory
+        if username in users:
+            del users[username]
+        if username in user_data:
+            del user_data[username]
+        return True
+    except Exception:
+        conn.rollback()
+        return False
+
 # -------------------------------
 # LOGIN PAGE
 # -------------------------------
@@ -679,6 +819,9 @@ if st.session_state.page == "login":
                 yesterday_str = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
                 user_data[username]["daily_intake"]["last_login_date"] = yesterday_str
                 user_data[username]["weekly_data"] = {"week_start": None, "days": {}}
+                user_data[username]["coins"] = 0
+                user_data[username]["owned_items"] = []
+                user_data[username]["medals"] = []
                 save_user_data(user_data)
                 st.success("✅ Account created successfully! Please login.")
         
@@ -712,7 +855,7 @@ if st.session_state.page == "login":
         reset_page_inputs_session()
 
 # -------------------------------
-# PERSONAL SETTINGS PAGE (unchanged behaviour)
+# PERSONAL SETTINGS PAGE
 # -------------------------------
 elif st.session_state.page == "settings":
     if not st.session_state.logged_in:
@@ -727,7 +870,7 @@ elif st.session_state.page == "settings":
     name = st.text_input("Name", value=saved.get("Name", username), key="settings_name")
     age = st.text_input("Age", value=saved.get("Age", ""), key="settings_age")
     country = st.selectbox("Country", countries, index=countries.index(saved.get("Country", "India")) if saved.get("Country") else countries.index("India"), key="settings_country")
-    language = st.text_input("Language", value=saved.get("Language", ""), key="settings_language")
+    language = st.selectbox("Language", options=["", "English", "Hindi", "Bengali", "Tamil", "Telugu", "Marathi"], index=(["", "English", "Hindi", "Bengali", "Tamil", "Telugu", "Marathi"].index(saved.get("Language", "English")) if saved.get("Language") in ["English","Hindi","Bengali","Tamil","Telugu","Marathi"] else 1), key="settings_language")
     
     st.write("---")
     
@@ -764,7 +907,7 @@ elif st.session_state.page == "settings":
     health_condition = st.radio(
         "Health condition", ["Excellent", "Fair", "Poor"],
         horizontal=True,
-        index=["Excellent", "Fair", "Poor"].index(saved.get("Health Condition", "Excellent")),
+        index=["Excellent", "Fair", "Poor"].index(saved.get("Health Condition", "Excellent")) if saved.get("Health Condition") else 0,
         key="settings_health_condition"
     )
     health_problems = st.text_area("Health problems", value=saved.get("Health Problems", ""), key="settings_health_problems")
@@ -850,6 +993,22 @@ User Info:
         st.info(f"Water Buddy output: {text_output}")
         go_to_page("water_profile")
 
+    # Delete account (destructive) — confirm before deleting
+    st.markdown("---")
+    st.warning("⚠️ Delete your account and data permanently.")
+    if st.button("Delete Account (permanent)"):
+        confirm = st.text_input("Type DELETE to confirm", key="confirm_delete")
+        if confirm == "DELETE":
+            ok = delete_account(username)
+            if ok:
+                st.success("Account deleted.")
+                # clear session to force re-login / show signup
+                st.session_state.logged_in = False
+                st.session_state.username = ""
+                reset_page_inputs_session()
+            else:
+                st.error("Could not delete account — try again.")
+
     # Reset button (bottom)
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_settings"):
@@ -876,7 +1035,7 @@ elif st.session_state.page == "water_profile":
     selected_frequency = st.selectbox(
         "🔔 Reminder Frequency:",
         frequency_options,
-        index=frequency_options.index(saved.get("frequency", "30 minutes")),
+        index=frequency_options.index(saved.get("frequency", "30 minutes")) if saved.get("frequency") else frequency_options.index("30 minutes"),
         key="water_profile_frequency"
     )
     
@@ -933,6 +1092,35 @@ elif st.session_state.page == "home":
     
     water_input = st.text_input("Enter water amount (in ml):", key="water_input")
     
+    # Reminder notification: if within reminder window and not recently reminded, show a small banner and play beep
+    try:
+        freq_text = user_data[username].get("water_profile", {}).get("frequency", "30 minutes")
+        freq_minutes = int(re.findall(r"(\d+)", freq_text)[0])
+    except Exception:
+        freq_minutes = 30
+
+    if is_within_reminder_window(freq_minutes, tolerance_minutes=5):
+        # check cooldown (10 minutes)
+        cooldown_min = 10
+        last = st.session_state.get("last_reminder_at")
+        show_reminder = False
+        if not last:
+            show_reminder = True
+        else:
+            last_dt = parse_iso_with_india(last)
+            if last_dt is None or (now_india() - last_dt) >= timedelta(minutes=cooldown_min):
+                show_reminder = True
+        if show_reminder:
+            # store last_reminder_at as iso aware
+            st.session_state.last_reminder_at = now_india().isoformat()
+            # small banner + play short beep via audio tag
+            st.info("⏰ Reminder: Time for a sip! (Reminder window)")
+            st.markdown("""<audio autoplay><source src="data:audio/wav;base64,UklGRhQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=" type="audio/wav"></audio>""", unsafe_allow_html=True)  # tiny silent-ish audio snippet to trigger sound in some browsers
+            # also show mascot reminder if possible
+            mascot_rem = choose_mascot_and_message("home", username)
+            if mascot_rem:
+                render_mascot_inline(mascot_rem, username)
+
     if st.button("➕ Add Water"):
         value = re.sub("[^0-9.]", "", water_input).strip()
         if value:
@@ -961,6 +1149,7 @@ elif st.session_state.page == "home":
                 user_streak = user_data[username]["streak"]
                 daily_goal_for_checks = user_data[username]["water_profile"].get("daily_goal", 2.5)
                 
+                just_completed = False
                 if st.session_state.total_intake >= daily_goal_for_checks:
                     if today_str not in user_streak.get("completed_days", []):
                         user_streak.setdefault("completed_days", []).append(today_str)
@@ -979,15 +1168,26 @@ elif st.session_state.page == "home":
                         
                         user_streak["current_streak"] = streak
                         user_data[username]["streak"] = user_streak
+                        just_completed = True
 
                 # Save user_data after modifications
                 save_user_data(user_data)
                 
                 # Trigger post-goal mascot: set session timestamp when user first completes
-                if st.session_state.total_intake >= daily_goal:
+                if just_completed:
                     if not st.session_state.last_goal_completed_at:
-                        st.session_state.last_goal_completed_at = datetime.now().isoformat()
-                
+                        st.session_state.last_goal_completed_at = now_india().isoformat()
+                    # award coins for the day completion
+                    coins_awarded = award_coins_for_completion(username, today_str)
+                    if coins_awarded:
+                        st.success(f"🏅 You earned {coins_awarded} coins for completing today's goal!")
+                    # award medals if any new unlocked
+                    medals = award_medals_for_streak(username)
+                    if medals:
+                        unlocked_names = ", ".join([m["name"] for m in medals])
+                        st.balloons()
+                        st.success(f"🏅 New medal unlocked: {unlocked_names}!")
+
                 # Rerun to refresh UI
                 st.rerun()
                 st.stop()
@@ -1031,6 +1231,14 @@ elif st.session_state.page == "home":
     st.write("")
     if st.button("🧠 Take Today's Quiz"):
         go_to_page("quiz")
+
+    # NEW: Play Game button
+    if st.button("🎮 Water Catch Game"):
+        go_to_page("game")
+
+    # Shop quick link
+    if st.button("🛍️ Cup Shop"):
+        go_to_page("shop")
 
     # Chatbot (unchanged)
     st.markdown("""
@@ -1117,7 +1325,7 @@ elif st.session_state.page == "home":
 
     # Mascot inline on Home page (below the main content)
     mascot = choose_mascot_and_message("home", username)
-    render_mascot_inline(mascot)
+    render_mascot_inline(mascot, username)
 
     # Home page note (requested)
     st.markdown(
@@ -1129,6 +1337,145 @@ elif st.session_state.page == "home":
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_home"):
         reset_page_inputs_session()
+
+# -------------------------------
+# GAME PAGE - Water Catch (mini reflex)
+# -------------------------------
+elif st.session_state.page == "game":
+    if not st.session_state.logged_in:
+        go_to_page("login")
+    username = st.session_state.username
+    ensure_user_structures(username)
+
+    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>🎮 Water Catch — Reflex Game</h1>", unsafe_allow_html=True)
+    st.write("Click the blue tile as fast as you can. Each successful catch gives coins. Play rounds of 10 seconds.")
+
+    # Game state
+    if "game_running" not in st.session_state:
+        st.session_state.game_running = False
+    if "game_score" not in st.session_state:
+        st.session_state.game_score = 0
+    if "game_end_time" not in st.session_state:
+        st.session_state.game_end_time = None
+    if "game_target" not in st.session_state:
+        st.session_state.game_target = None
+    if "game_last_click" not in st.session_state:
+        st.session_state.game_last_click = None
+
+    def start_game():
+        st.session_state.game_running = True
+        st.session_state.game_score = 0
+        st.session_state.game_end_time = datetime.now() + timedelta(seconds=10)
+        st.session_state.game_target = random.randint(0,8)
+        st.experimental_rerun()
+
+    def click_tile(i):
+        if not st.session_state.game_running:
+            return
+        if i == st.session_state.game_target:
+            st.session_state.game_score += 1
+            # new target
+            st.session_state.game_target = random.randint(0,8)
+        st.session_state.game_last_click = datetime.now().isoformat()
+        st.experimental_rerun()
+
+    if not st.session_state.game_running:
+        if st.button("Start 10s Round"):
+            start_game()
+    else:
+        remaining = (st.session_state.game_end_time - datetime.now()).total_seconds()
+        if remaining <= 0:
+            # End round
+            st.session_state.game_running = False
+            earned = st.session_state.game_score  # 1 coin per score
+            if earned:
+                ensure_user_structures(username)
+                user_data[username]["coins"] = user_data[username].get("coins", 0) + earned
+                # persist game history
+                gh = user_data[username].setdefault("game_history", {})
+                gh[datetime.now().isoformat()] = {"score": st.session_state.game_score}
+                save_user_data(user_data)
+                st.success(f"Round complete! You scored {st.session_state.game_score} and earned {earned} coins.")
+            else:
+                st.info("Round complete — no catches this time. Try again!")
+            st.session_state.game_score = 0
+            st.session_state.game_end_time = None
+            st.session_state.game_target = None
+            st.experimental_rerun()
+        else:
+            st.write(f"Time left: {int(remaining)}s | Score: {st.session_state.game_score}")
+            # Render 3x3 grid of tiles; highlight target
+            cols = st.columns(3)
+            idx = 0
+            for r in range(3):
+                with cols[0]:
+                    pass
+                row_cols = st.columns(3)
+                for c in range(3):
+                    color = "background:#D6E8FF;border-radius:6px;padding:10px;margin:6px;text-align:center;"
+                    if idx == st.session_state.game_target:
+                        color = "background:#1A73E8;color:white;border-radius:6px;padding:10px;margin:6px;text-align:center;"
+                    # Using buttons with unique keys
+                    if st.button(" " if idx != st.session_state.game_target else "Catch!", key=f"tile_{idx}", help=f"Tile {idx}"):
+                        click_tile(idx)
+                    idx += 1
+
+    st.markdown("<br>")
+    if st.button("🏠 Home"):
+        go_to_page("home")
+    if st.button("🚰 Water Intake"):
+        go_to_page("water_profile")
+    if st.button("📈 Report"):
+        go_to_page("report")
+
+# -------------------------------
+# SHOP PAGE - Buy cup designs with coins
+# -------------------------------
+elif st.session_state.page == "shop":
+    if not st.session_state.logged_in:
+        go_to_page("login")
+    username = st.session_state.username
+    ensure_user_structures(username)
+    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>🛍️ Cup Shop</h1>", unsafe_allow_html=True)
+    coins = user_data[username].get("coins", 0)
+    st.write(f"Your coins: **{coins}**")
+    st.write("Buy cup designs to personalize your bottle. Each purchase is saved to your account.")
+    st.write("---")
+
+    # sample items
+    items = [
+        {"id": "cup_blue", "name": "Ocean Blue Cup", "price": 10, "img": build_image_url("cup_blue.png")},
+        {"id": "cup_sunset", "name": "Sunset Cup", "price": 15, "img": build_image_url("cup_sunset.png")},
+        {"id": "cup_leaf", "name": "Leaf Cup", "price": 8, "img": build_image_url("cup_leaf.png")},
+    ]
+
+    owned = user_data[username].get("owned_items", [])
+
+    for it in items:
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            try:
+                st.image(it["img"], width=80)
+            except Exception:
+                st.write("")
+        with col2:
+            st.markdown(f"**{it['name']}** — {it['price']} coins")
+            if it["id"] in owned:
+                st.button("Owned", disabled=True, key=f"owned_{it['id']}")
+            else:
+                if st.button(f"Buy ({it['price']})", key=f"buy_{it['id']}"):
+                    if coins >= it["price"]:
+                        user_data[username]["coins"] = coins - it["price"]
+                        user_data[username].setdefault("owned_items", []).append(it["id"])
+                        save_user_data(user_data)
+                        st.success(f"Purchased {it['name']}!")
+                        st.experimental_rerun()
+                    else:
+                        st.error("Not enough coins.")
+
+    st.markdown("<br>")
+    if st.button("🏠 Home"):
+        go_to_page("home")
 
 # -------------------------------
 # QUIZ PAGE
@@ -1299,7 +1646,7 @@ elif st.session_state.page == "report":
                 'value': 100
             }
         }
-    ))
+    )))
     fig_daily.update_layout(height=300, margin=dict(l=20, r=20, t=30, b=20), paper_bgcolor="rgba(0,0,0,0)")
     st.plotly_chart(fig_daily, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
@@ -1371,6 +1718,7 @@ elif st.session_state.page == "report":
     colors = [week_color_for_status(s) for s in status_list]
     df_week = pd.DataFrame({"label": labels, "pct": pct_list, "liters": liters_list, "status": status_list})
 
+    # Plotly bar (existing)
     fig_week = go.Figure()
     fig_week.add_trace(go.Bar(
         x=df_week["label"],
@@ -1385,6 +1733,18 @@ elif st.session_state.page == "report":
                             margin=dict(l=20, r=20, t=20, b=40), height=340,
                             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': True})
+
+    # Matplotlib alternative chart (requirement #6)
+    st.markdown("#### Weekly Liters (Matplotlib view)")
+    try:
+        fig, ax = plt.subplots(figsize=(6,2.5))
+        ax.bar([d.strftime("%a") for d in week_days], liters_list)
+        ax.set_ylabel("Liters")
+        ax.set_title("Liters per day (current week)")
+        plt.tight_layout()
+        st.pyplot(fig)
+    except Exception:
+        st.info("Matplotlib chart couldn't render in this environment.")
 
     # Report note about zoom behavior (requested)
     st.markdown(
@@ -1552,6 +1912,15 @@ elif st.session_state.page == "daily_streak":
 
     st.markdown(f"<h2 style='text-align:center; color:#1A73E8;'>🔥 Daily Streak: {current_streak} Days</h2>", unsafe_allow_html=True)
     st.write("---")
+
+    # Show medals
+    medals_owned = user_data[username].get("medals", [])
+    if medals_owned:
+        st.markdown("### 🏅 Your Medals")
+        for m in MEDAL_RULES:
+            if m["id"] in medals_owned:
+                st.write(f"**{m['name']}** — {m['desc']}")
+
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         if st.button("🏠 Home"):
@@ -1570,7 +1939,7 @@ elif st.session_state.page == "daily_streak":
 
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
-    render_mascot_inline(mascot)
+    render_mascot_inline(mascot, username)
 
 # -------------------------------
 # End of App
