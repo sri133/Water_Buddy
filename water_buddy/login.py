@@ -1646,7 +1646,7 @@ elif st.session_state.page == "report":
                 'value': 100
             }
         }
-    )))
+    ))
     fig_daily.update_layout(height=300, margin=dict(l=20, r=20, t=30, b=20), paper_bgcolor="rgba(0,0,0,0)")
     st.plotly_chart(fig_daily, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
@@ -1947,3 +1947,4 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
