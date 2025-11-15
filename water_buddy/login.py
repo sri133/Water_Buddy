@@ -24,7 +24,7 @@ from pathlib import Path
 def set_background(water_theme=False):
     if water_theme:
         # Water-themed light blue background
-        color = "#E0F7FA"
+        color = "#IC8585"
     else:
         # Default Streamlit background
         color = "white"
@@ -1632,6 +1632,7 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
 
