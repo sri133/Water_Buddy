@@ -1051,6 +1051,13 @@ elif st.session_state.page == "home":
             st.session_state.total_intake = 0.0
             st.session_state.water_intake_log = []
             go_to_page("login")
+    st.write("")
+    st.write("")
+
+    # 🎮 Thirsty Cup Button (Only in Home Page)
+    if st.button("Play Thirsty Cup 🎮"):
+        st.session_state.page = "thirsty_cup"
+        st.rerun()
 
     # NEW: Quiz navigation button (like other page buttons)
     st.write("")
@@ -1174,16 +1181,7 @@ elif st.session_state.page == "home":
         )
         st.session_state.background_color = new_color
         st.success("Background color updated!")
-    st.write("")
-    st.write("")
-
-    # 🎮 Thirsty Cup Button (Only in Home Page)
-    if st.button("Play Thirsty Cup 🎮"):
-        st.session_state.page = "thirsty_cup"
-        st.rerun()
-
-
-
+    
 # -------------------------------
 # QUIZ PAGE
 # -------------------------------
@@ -1659,6 +1657,7 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
 
