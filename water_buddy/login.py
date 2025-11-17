@@ -917,24 +917,7 @@ elif st.session_state.page == "water_profile":
 elif st.session_state.page == "home":
         # APPLY BACKGROUND
     set_background()
-
-    # -----------------------------------
-    # COLOR CHANGE BUTTON
-    # -----------------------------------
-    if "show_color_picker" not in st.session_state:
-        st.session_state.show_color_picker = False
-
-    if st.button("🎨 Color"):
-        st.session_state.show_color_picker = True
-
-    if st.session_state.show_color_picker:
-        new_color = st.color_picker(
-            "Choose a background color:",
-            st.session_state.get("background_color", "#FFFFFF")
-        )
-        st.session_state.background_color = new_color
-        st.success("Color updated! Works on all pages.")
-
+    
     if not st.session_state.logged_in:
         go_to_page("login")
     set_background() # <-- add here
@@ -1667,6 +1650,7 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
 
