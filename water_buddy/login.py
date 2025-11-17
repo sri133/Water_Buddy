@@ -910,6 +910,368 @@ elif st.session_state.page == "water_profile":
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_water_profile"):
         reset_page_inputs_session()
+        # -------------------------------
+# WATER CATCH GAME PAGE: "Thirsty Cup"
+# -------------------------------
+elif st.session_state.page == "water_catch_game":
+    # Ensure background and login
+    if not st.session_state.logged_in:
+        go_to_page("login")
+
+    # Apply background (uses your dynamic set_background())
+    set_background()
+
+    # Initialize coin counter in session
+    if "coins" not in st.session_state:
+        st.session_state.coins = 0
+
+    # Page header + coin icon top-right
+    cols = st.columns([1, 0.3])
+    with cols[0]:
+        st.markdown("<h1 style='text-align:left; color:#1A73E8; margin:0;'>💧 Thirsty Cup</h1>", unsafe_allow_html=True)
+    with cols[1]:
+        # coin display container (keeps it small & top-right)
+        st.markdown(
+            f"""
+            <div style="text-align:right; font-weight:600;">
+                <span style="vertical-align:middle;">🪙</span>
+                <span id="coin-count" style="margin-left:6px; font-size:16px;">{st.session_state.coins}</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    st.write("")  # small spacing
+
+    # Game state toggles
+    if "thirsty_playing" not in st.session_state:
+        st.session_state.thirsty_playing = False
+    if "thirsty_result" not in st.session_state:
+        st.session_state.thirsty_result = None  # "win" / "lose" / None
+    if "thirsty_claimed" not in st.session_state:
+        st.session_state.thirsty_claimed = False
+
+    # Centered big hero and Play button (shown only before playing)
+    if not st.session_state.thirsty_playing:
+        st.markdown(
+            """
+            <div style="width:100%; display:flex; align-items:center; justify-content:center; flex-direction:column; margin-top:40px;">
+                <div style="font-size:88px; font-weight:900; color: rgba(0,0,0,0.06); letter-spacing:6px; user-select:none;">
+                    THIRSTY CUP
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        if st.button("▶️ Play", key="thirsty_play_btn"):
+            # Reset per-play flags
+            st.session_state.thirsty_playing = True
+            st.session_state.thirsty_result = None
+            st.session_state.thirsty_claimed = False
+            # rerun to show canvas
+            st.experimental_rerun()
+
+    # When playing: show canvas game (HTML/JS) inside components.html
+    if st.session_state.thirsty_playing:
+        # We'll embed a self-contained HTML5 canvas game. It handles:
+        # - falling drops
+        # - mouse-moving cup (follow X)
+        # - collision detection
+        # - win/lose overlay
+        # After the game ends the JS will show overlay and also expose a "Claim Coin" button below the component.
+        from streamlit.components.v1 import html
+
+        game_html = r"""
+        <style>
+        /* Keep canvas responsive and centered */
+        .tc-game-wrap { display:flex; justify-content:center; align-items:center; margin: 10px 0 8px 0; }
+        .tc-overlay { position: absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; }
+        </style>
+        <div class="tc-game-wrap">
+            <div id="tc-root" style="position:relative; width:760px; max-width:92%; height:520px; border-radius:14px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.12);">
+                <canvas id="tc-canvas" width="760" height="520" style="display:block; background: linear-gradient(to bottom, rgba(201,232,255,0.6), rgba(255,255,255,0.6));"></canvas>
+                <div id="tc-overlay" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;"></div>
+            </div>
+        </div>
+
+        <script>
+        (function(){
+            const canvas = document.getElementById('tc-canvas');
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width;
+            const H = canvas.height;
+
+            // Game parameters
+            const totalDrops = 12;             // drops to catch
+            const dropSize = 10;
+            const dropSpeedMin = 1.2;
+            const dropSpeedMax = 2.6;
+            const cupWidth = 120;
+            const cupHeight = 40;
+            const cupY = H - 80;
+
+            let drops = [];
+            let caught = 0;
+            let missed = 0;
+            let running = true;
+            let lastTime = performance.now();
+            let mouseX = W/2;
+
+            // Create drops spaced over time
+            function spawnDrop(delay) {
+                return {
+                    x: Math.random() * (W - dropSize*2) + dropSize,
+                    y: - (Math.random() * 200 + 20),
+                    speed: Math.random() * (dropSpeedMax-dropSpeedMin) + dropSpeedMin,
+                    active: true
+                };
+            }
+
+            // populate initial drops
+            for (let i=0;i<totalDrops;i++) { drops.push(spawnDrop(i*300)); }
+
+            // mouse tracking (over canvas)
+            canvas.addEventListener('mousemove', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
+            });
+
+            // draw cup (simple rounded rect)
+            function drawCup(x) {
+                ctx.save();
+                ctx.fillStyle = '#1A73E8';
+                const cx = x - cupWidth/2;
+                ctx.beginPath();
+                ctx.moveTo(cx+8, cupY);
+                ctx.lineTo(cx + cupWidth-8, cupY);
+                ctx.quadraticCurveTo(cx+cupWidth, cupY, cx+cupWidth, cupY+8);
+                ctx.lineTo(cx+cupWidth, cupY+cupHeight-8);
+                ctx.quadraticCurveTo(cx+cupWidth, cupY+cupHeight, cx+cupWidth-8, cupY+cupHeight);
+                ctx.lineTo(cx+8, cupY+cupHeight);
+                ctx.quadraticCurveTo(cx, cupY+cupHeight, cx, cupY+cupHeight-8);
+                ctx.lineTo(cx, cupY+8);
+                ctx.quadraticCurveTo(cx, cupY, cx+8, cupY);
+                ctx.closePath();
+                ctx.fill();
+
+                // inner highlight
+                ctx.fillStyle = 'rgba(255,255,255,0.12)';
+                ctx.fillRect(cx+8, cupY+6, cupWidth-16, cupHeight/2 - 6);
+                ctx.restore();
+            }
+
+            function drawDrop(d) {
+                ctx.save();
+                const grd = ctx.createLinearGradient(d.x, d.y, d.x, d.y+dropSize*2);
+                grd.addColorStop(0, '#E0F7FA');
+                grd.addColorStop(1, '#1CA3A3');
+                ctx.fillStyle = grd;
+                ctx.beginPath();
+                ctx.ellipse(d.x, d.y, dropSize, dropSize*1.2, 0, 0, Math.PI*2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            function update(dt) {
+                // iterate drops
+                for (let i=0;i<drops.length;i++){
+                    let d = drops[i];
+                    if (!d.active) continue;
+                    d.y += d.speed * dt * 0.06;
+                    // collision with cup
+                    const cupLeft = mouseX - cupWidth/2;
+                    const cupRight = mouseX + cupWidth/2;
+                    const cupTop = cupY;
+                    if (d.y + dropSize >= cupTop && d.x > cupLeft && d.x < cupRight) {
+                        // caught
+                        d.active = false;
+                        caught += 1;
+                    } else if (d.y > H + 20) {
+                        // missed
+                        d.active = false;
+                        missed += 1;
+                    }
+                }
+            }
+
+            function draw() {
+                // clear
+                ctx.clearRect(0,0,W,H);
+
+                // background subtle waves (decorative)
+                ctx.save();
+                ctx.globalAlpha = 0.06;
+                for (let i=0;i<6;i++){
+                    ctx.beginPath();
+                    ctx.ellipse(W/2, H/2 + i*12, W*0.9, 90 + i*10, 0, 0, Math.PI*2);
+                    ctx.fillStyle = '#1CA3A3';
+                    ctx.fill();
+                }
+                ctx.restore();
+
+                // drops
+                for (let d of drops) {
+                    if (d.active) drawDrop(d);
+                }
+
+                // cup
+                drawCup(mouseX);
+
+                // HUD: score top-left
+                ctx.save();
+                ctx.fillStyle = '#0b63c6';
+                ctx.font = '18px Inter, Arial';
+                ctx.fillText('Caught: ' + caught + ' / ' + totalDrops, 12, 28);
+                ctx.fillStyle = '#555';
+                ctx.fillText('Missed: ' + missed, 12, 52);
+                ctx.restore();
+            }
+
+            function checkEnd() {
+                if (caught >= totalDrops) return 'win';
+                // end condition: all drops inactive and not enough caught
+                const anyActive = drops.some(d => d.active);
+                if (!anyActive) {
+                    if (caught >= totalDrops) return 'win';
+                    // treat missed as lose
+                    return 'lose';
+                }
+                return null;
+            }
+
+            function showOverlay(type) {
+                const overlay = document.getElementById('tc-overlay');
+                overlay.innerHTML = '';
+                const panel = document.createElement('div');
+                panel.style.pointerEvents = 'auto';
+                panel.style.backdropFilter = 'blur(6px)';
+                panel.style.background = 'rgba(255,255,255,0.85)';
+                panel.style.padding = '22px';
+                panel.style.borderRadius = '12px';
+                panel.style.textAlign = 'center';
+                panel.style.boxShadow = '0 8px 30px rgba(0,0,0,0.12)';
+                if (type === 'win') {
+                    panel.innerHTML = `<div style="font-size:36px; font-weight:700; color:#1A73E8; margin-bottom:8px;">You Win! 🏆</div>
+                                       <div style="margin-bottom:14px;">Perfect catch — you earned a coin!</div>
+                                       <div style="font-size:28px;">🪙</div>`;
+                } else {
+                    panel.innerHTML = `<div style="font-size:36px; font-weight:700; color:#ff6b6b; margin-bottom:8px;">You Lose</div>
+                                       <div style="margin-bottom:14px;">Some drops were missed — try again!</div>
+                                       <button id="motBtn" style="padding:8px 14px; border-radius:8px; border: none; background:#1A73E8; color:white; cursor:pointer;">Get Motivation</button>`;
+                }
+                overlay.appendChild(panel);
+
+                // Expose result globally to be read by Streamlit UI (via Claim button)
+                window.__tc_result = type;
+                if (type === 'win') {
+                    // show mini coin icon top-right inside the canvas parent (visual)
+                    const parent = document.getElementById('tc-root');
+                    if (!document.getElementById('mini-coin')) {
+                        const cdiv = document.createElement('div');
+                        cdiv.id = 'mini-coin';
+                        cdiv.style.position = 'absolute';
+                        cdiv.style.top = '10px';
+                        cdiv.style.right = '12px';
+                        cdiv.style.background = 'rgba(255,255,255,0.9)';
+                        cdiv.style.padding = '6px 8px';
+                        cdiv.style.borderRadius = '12px';
+                        cdiv.style.boxShadow = '0 6px 20px rgba(0,0,0,0.12)';
+                        cdiv.innerHTML = '<span style="font-size:18px;">🪙</span><span style="margin-left:6px; font-weight:700;" id="mini-coin-count">1</span>';
+                        parent.appendChild(cdiv);
+                    }
+                } else {
+                    // hook motivation button to send a postMessage with type 'TC_MOTIVATION'
+                    const motBtn = document.getElementById('motBtn');
+                    motBtn && motBtn.addEventListener('click', () => {
+                        // send message to parent so Streamlit can show a motivation (Streamlit can't natively receive this,
+                        // but we provide a simple hack: write the result into window.name then the user clicks "Get Motivation" below
+                        // We'll also copy to clipboard for convenience.
+                        window.__tc_motivation = (new Date()).toISOString();
+                        alert('Requesting motivation... Click "Get Motivation" below in the Streamlit UI to fetch it.');
+                    });
+                }
+            }
+
+            function loop(ts) {
+                const dt = ts - lastTime;
+                lastTime = ts;
+                if (!running) return;
+
+                update(dt);
+                draw();
+                const res = checkEnd();
+                if (res) {
+                    running = false;
+                    showOverlay(res);
+                } else {
+                    requestAnimationFrame(loop);
+                }
+            }
+
+            requestAnimationFrame(loop);
+        })();
+        </script>
+        """
+
+        # render the game
+        html(game_html, height=580)
+
+        # After the component, show claim/controls in Streamlit
+        st.markdown("")  # spacing
+
+        # Claim button to record coin (manual step to integrate HTML result with Streamlit)
+        # We use a simple convention: if window.__tc_result === 'win' in the component,
+        # user clicks "Claim Coin" here to store it in session_state. This avoids fragile cross-window messaging.
+        if st.session_state.thirsty_result is None:
+            # initially unknown; show helpful hint
+            st.info("Catch all drops to win a coin. When the round ends, click the appropriate button below.")
+        # Claim / Retry / Get Motivation controls
+        colc1, colc2, colc3 = st.columns([1,1,1])
+        with colc1:
+            if st.button("Claim Coin (if you won)"):
+                # If they claim, we assume they saw the win overlay in the component.
+                # Increase coins and mark claimed.
+                st.session_state.coins += 1
+                st.session_state.thirsty_claimed = True
+                st.success("🪙 Coin added! Check top-right.")
+                # update coin display area (small JS to update that span)
+                st.experimental_rerun()
+        with colc2:
+            if st.button("Retry"):
+                # restart the game
+                st.session_state.thirsty_playing = True
+                st.session_state.thirsty_result = None
+                st.session_state.thirsty_claimed = False
+                st.experimental_rerun()
+        with colc3:
+            if st.button("Get Motivation"):
+                # call your existing helper for a short motivational message
+                try:
+                    msg = ask_gemini_for_message("Motivational line for a player who lost a water-catching game.", "Keep trying — practice makes perfect! 💧")
+                    st.info(msg)
+                except Exception:
+                    st.info("Keep trying — you’ll get it next round! 💪")
+
+    # If not playing, still show small footer nav/buttons (so user can go to other pages)
+    st.markdown("---")
+    nav1, nav2, nav3, nav4, nav5 = st.columns(5)
+    with nav1:
+        if st.button("🏠 Home"):
+            go_to_page("home")
+    with nav2:
+        if st.button("👤 Personal Settings"):
+            go_to_page("settings")
+    with nav3:
+        if st.button("🚰 Water Intake"):
+            go_to_page("water_profile")
+    with nav4:
+        if st.button("📈 Report"):
+            go_to_page("report")
+    with nav5:
+        if st.button("🔥 Daily Streak"):
+            go_to_page("daily_streak")
+
 
 # -------------------------------
 # HOME PAGE (persistent bottle + auto-reset at midnight)
@@ -1657,6 +2019,7 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
 
