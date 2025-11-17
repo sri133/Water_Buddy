@@ -1452,11 +1452,6 @@ elif st.session_state.page == "home":
     st.write("")
     st.write("")
 
-    # 🎮 Thirsty Cup Button (Only in Home Page)
-    if st.button("Play Thirsty Cup 🎮"):
-        st.session_state.page = "thirsty_cup"
-        st.rerun()
-
     # NEW: Quiz navigation button (like other page buttons)
     st.write("")
     if st.button("🧠 Take Today's Quiz"):
@@ -2055,6 +2050,7 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
 
