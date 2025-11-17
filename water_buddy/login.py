@@ -21,13 +21,8 @@ import pytz
 from pathlib import Path
 
 # --- add this function after imports ---
-def set_background(water_theme=False):
-    if water_theme:
-        # Water-themed light blue background
-        color = "#C9E8FF"
-    else:
-        # Default Streamlit background
-        color = "white"
+def set_background():
+    color = st.session_state.get("background_color", "white")
 
     st.markdown(
         f"""
@@ -43,7 +38,6 @@ def set_background(water_theme=False):
         """,
         unsafe_allow_html=True
     )
-
 # -------------------------------
 # Load API key from .env or Streamlit Secrets
 # -------------------------------
@@ -741,7 +735,7 @@ if st.session_state.page == "login":
 elif st.session_state.page == "settings":
     if not st.session_state.logged_in:
         go_to_page("login")
-    set_background(water_theme=True)  # <-- add here
+    set_background()   # <-- add here
 
     username = st.session_state.username
     ensure_user_structures(username)
@@ -886,7 +880,7 @@ User Info:
 elif st.session_state.page == "water_profile":
     if not st.session_state.logged_in:
         go_to_page("login")
-    set_background(water_theme=True)  # <-- add here
+    set_background()  # <-- add here
 
     username = st.session_state.username
     ensure_user_structures(username)
@@ -921,9 +915,29 @@ elif st.session_state.page == "water_profile":
 # HOME PAGE (persistent bottle + auto-reset at midnight)
 # -------------------------------
 elif st.session_state.page == "home":
+        # APPLY BACKGROUND
+    set_background()
+
+    # -----------------------------------
+    # COLOR CHANGE BUTTON
+    # -----------------------------------
+    if "show_color_picker" not in st.session_state:
+        st.session_state.show_color_picker = False
+
+    if st.button("🎨 Color"):
+        st.session_state.show_color_picker = True
+
+    if st.session_state.show_color_picker:
+        new_color = st.color_picker(
+            "Choose a background color:",
+            st.session_state.get("background_color", "#FFFFFF")
+        )
+        st.session_state.background_color = new_color
+        st.success("Color updated! Works on all pages.")
+
     if not st.session_state.logged_in:
         go_to_page("login")
-    set_background(water_theme=True)  # <-- add here
+    set_background() # <-- add here
 
     username = st.session_state.username
     ensure_user_structures(username)
@@ -1163,7 +1177,7 @@ elif st.session_state.page == "home":
 elif st.session_state.page == "quiz":
     if not st.session_state.logged_in:
         go_to_page("login")
-    set_background(water_theme=True)  # <-- add here
+    set_background()  # <-- add here
     username = st.session_state.username
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>🧠 Daily Water Quiz</h1>", unsafe_allow_html=True)
     st.write("Test your water knowledge — 10 questions. Explanations will be shown after you submit.")
@@ -1279,7 +1293,7 @@ elif st.session_state.page == "quiz":
 elif st.session_state.page == "report":
     if not st.session_state.logged_in:
         go_to_page("login")
-    set_background(water_theme=True)  # <-- add here
+    set_background()  # <-- add here
 
     username = st.session_state.username
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>📊 Hydration Report</h1>", unsafe_allow_html=True)
@@ -1448,7 +1462,7 @@ elif st.session_state.page == "report":
 elif st.session_state.page == "daily_streak":
     if not st.session_state.logged_in:
         go_to_page("login")
-    set_background(water_theme=True)  # <-- add here
+    set_background()  # <-- add here
 
     username = st.session_state.username
     today = date.today()
@@ -1632,6 +1646,7 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
 
