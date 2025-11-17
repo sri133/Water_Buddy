@@ -1170,6 +1170,27 @@ elif st.session_state.page == "home":
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_home"):
         reset_page_inputs_session()
+            # --------------------------------------------------
+    # COLOR PICKER AT BOTTOM OF PAGE
+    # --------------------------------------------------
+    st.markdown("---")  # divider line
+
+    st.subheader("Customize Background Color 🎨")
+
+    if "show_color_picker" not in st.session_state:
+        st.session_state.show_color_picker = False
+
+    if st.button("Pick Background Color"):
+        st.session_state.show_color_picker = True
+
+    if st.session_state.show_color_picker:
+        new_color = st.color_picker(
+            "Choose a background color:",
+            st.session_state.get("background_color", "#FFFFFF")
+        )
+        st.session_state.background_color = new_color
+        st.success("Background color updated!")
+
 
 # -------------------------------
 # QUIZ PAGE
@@ -1646,6 +1667,7 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
 
