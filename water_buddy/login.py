@@ -1589,69 +1589,100 @@ elif st.session_state.page == "home":
 elif st.session_state.page == "quiz":
     if not st.session_state.logged_in:
         go_to_page("login")
-    set_background()  # <-- add here
+
+    set_background()
+
     username = st.session_state.username
+
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>🧠 Daily Water Quiz</h1>", unsafe_allow_html=True)
-    st.write("Test your water knowledge — 10 questions. Explanations will be shown after you submit.")
+    st.write("Test your water knowledge — 10 questions. Explanations will appear after you submit.")
     st.write("---")
 
-    # Load or generate today's quiz
-    quiz = get_daily_quiz()  # returns list of 10 dicts
-    # ensure length 10
+    # Load today's quiz (Gemini or fallback)
+    quiz = get_daily_quiz()
+
     if not quiz or len(quiz) < 1:
-        st.error("❗ Could not load quiz right now. Try again later.")
+        st.error("❗ Could not load quiz right now. Please try again later.")
     else:
-        # Display questions with radio options A-D
+
+        # --- SESSION INITIALIZATION ---
         if "quiz_answers" not in st.session_state:
             st.session_state.quiz_answers = [None] * len(quiz)
+
         if "quiz_submitted" not in st.session_state:
             st.session_state.quiz_submitted = False
             st.session_state.quiz_results = None
             st.session_state.quiz_score = None
 
-        # For each question show radios
+        # --- DISPLAY QUESTIONS ---
+        labels = ["A", "B", "C", "D"]
+
         for i, item in enumerate(quiz):
             q_text = item.get("q", f"Question {i+1}")
             options = item.get("options", [])
-            # ensure 4 options
-            if len(options) < 4:
-                # pad if needed
-                while len(options) < 4:
-                    options.append("N/A")
+
+            # Ensure 4 options
+            while len(options) < 4:
+                options.append("N/A")
+
             st.markdown(f"**Q{i+1}. {q_text}**")
-            # map options to labels A-D
-            labels = ["A", "B", "C", "D"]
+
+            # Display options as A-D
             full_options = [f"{labels[j]}. {options[j]}" for j in range(4)]
-            default_index = 0
+
             existing = st.session_state.quiz_answers[i]
-            selected = st.radio(f"Select answer for Q{i+1}", full_options, index=existing if existing is not None else 0, key=f"q_{i}")
-            # store selected index
-            sel_index = full_options.index(selected)
-            st.session_state.quiz_answers[i] = sel_index
+
+            # FIXED: No default preselected answer (avoids first-click error)
+            selected = st.radio(
+                f"Select answer for Q{i+1}",
+                full_options,
+                index=existing if isinstance(existing, int) else None,
+                key=f"quiz_q_{i}"
+            )
+
+            # Save answer only if a valid selection was made
+            if selected in full_options:
+                st.session_state.quiz_answers[i] = full_options.index(selected)
+
             st.write("")
 
-        # Submit button
+        # --- SUBMIT BUTTON ---
         if not st.session_state.quiz_submitted:
+
             if st.button("Submit Answers"):
-                # grade
-                answers = [ans if ans is not None else 0 for ans in st.session_state.quiz_answers]
+
+                # Prevent submitting without answering all Qs
+                if None in st.session_state.quiz_answers:
+                    st.warning("⚠ Please answer all questions before submitting the quiz.")
+                    st.stop()
+
+                answers = st.session_state.quiz_answers
+
                 results, score = grade_quiz_and_explain(quiz, answers)
                 st.session_state.quiz_results = results
                 st.session_state.quiz_score = score
                 st.session_state.quiz_submitted = True
-                # optionally persist user quiz history under user_data
+
+                # Save quiz history
                 ensure_user_structures(username)
-                user_hist = user_data[username].setdefault("quiz_history", {})
                 today = date.today().isoformat()
-                user_hist[today] = {"score": score, "total": len(quiz), "timestamp": datetime.now().isoformat()}
+                user_hist = user_data[username].setdefault("quiz_history", {})
+                user_hist[today] = {
+                    "score": score,
+                    "total": len(quiz),
+                    "timestamp": datetime.now().isoformat()
+                }
                 save_user_data(user_data)
+
                 st.experimental_rerun()
 
+        # --- SHOW RESULTS ---
         else:
-            # show results
             results = st.session_state.quiz_results
             score = st.session_state.quiz_score or 0
+
             st.markdown(f"## Results — Score: **{score} / {len(quiz)}**")
+
             for i, r in enumerate(results):
                 q = r["q"]
                 options = r["options"]
@@ -1659,24 +1690,37 @@ elif st.session_state.page == "quiz":
                 selected_index = r["selected_index"]
                 is_correct = r["is_correct"]
                 explanation = r["explanation"]
-                label_map = ["A","B","C","D"]
+
                 st.markdown(f"**Q{i+1}. {q}**")
+
                 for idx, opt in enumerate(options):
-                    prefix = "✅" if idx == correct_index else ("🔸" if idx == selected_index and not is_correct else "•")
-                    st.write(f"{prefix} {label_map[idx]}. {opt}")
+                    if idx == correct_index:
+                        prefix = "✅"
+                    elif idx == selected_index and not is_correct:
+                        prefix = "🔸"
+                    else:
+                        prefix = "•"
+
+                    st.write(f"{prefix} {labels[idx]}. {opt}")
+
                 if is_correct:
                     st.success(f"Correct — {explanation}")
                 else:
-                    st.error(f"Wrong. {explanation}")
+                    st.error(f"Wrong — {explanation}")
+
                 st.write("---")
-            # final motivational message via gemini
+
+            # Motivational message from Gemini
             try:
-                msg = ask_gemini_for_message(f"Congratulate user for taking today's water quiz and give a short motivational line based on score {score} out of {len(quiz)}.", "Nice work — keep learning about water and stay hydrated!")
+                msg = ask_gemini_for_message(
+                    f"Congratulate the user for completing the daily water quiz and motivate them. Score = {score} out of {len(quiz)}.",
+                    "Nice work! Keep learning about water and stay hydrated!"
+                )
                 st.info(msg)
             except Exception:
                 pass
 
-    # Navigation buttons (same style as other pages)
+    # --- NAVIGATION BUTTONS ---
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         if st.button("🏠 Home"):
@@ -1694,10 +1738,10 @@ elif st.session_state.page == "quiz":
         if st.button("🔥 Daily Streak"):
             go_to_page("daily_streak")
 
-    # Reset button (bottom)
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_quiz"):
         reset_page_inputs_session()
+
 
 # -------------------------------
 # REPORT PAGE (no mascot)
@@ -2058,3 +2102,4 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
