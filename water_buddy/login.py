@@ -495,40 +495,176 @@ def render_mascot_inline(mascot: Optional[Dict[str, str]]):
             """,
             unsafe_allow_html=True
         )
-        # -------------------------------
-# QUIZ PAGE
+
 # -------------------------------
-elif st.session_state.page == "quiz":
-    if not st.session_state.logged_in:
-        go_to_page("login")
+# Quiz utilities (unchanged)
+# -------------------------------
+def generate_quiz_via_model():
+    """Ask Gemini to generate 10 MCQ questions in JSON format."""
+    fallback = generate_quiz_fallback()
+    try:
+        if not model:
+            return fallback
+        prompt = """
+Generate 10 multiple-choice questions about water (health/hydration facts, water history, and recent water-related news/documentaries).
+Return as valid JSON array only. Each item must be an object with fields:
+- "q": question text
+- "options": array of 4 option strings
+- "correct_index": index of correct option (0..3)
+- "explanation": short explanation (1-2 sentences) why the correct answer is correct.
+Keep each question concise and suitable for general audience.
+"""
+        resp = model.generate_content(prompt)
+        text = resp.text.strip()
+        json_start = text.find("[")
+        json_text = text if json_start == 0 else text[json_start:]
+        data = json.loads(json_text)
+        if isinstance(data, list) and len(data) >= 10:
+            return data[:10]
+        else:
+            return fallback
+    except Exception:
+        return fallback
 
-    quiz = get_daily_quiz()   # NEW questions per day
+def generate_quiz_fallback():
+    sample = [
+        {
+            "q": "What percentage of the adult human body is roughly water?",
+            "options": ["~30%", "~60%", "~80%", "~95%"],
+            "correct_index": 1,
+            "explanation": "About 60% of an adult human's body is water, though this varies with age, sex, and body composition."
+        },
+        {
+            "q": "Which process returns water to the atmosphere from plants?",
+            "options": ["Condensation", "Precipitation", "Transpiration", "Infiltration"],
+            "correct_index": 2,
+            "explanation": "Transpiration is the process where plants release water vapor to the atmosphere from their leaves."
+        },
+        {
+            "q": "Which is the primary source of fresh water for most cities?",
+            "options": ["Seawater", "Groundwater and rivers/lakes", "Glaciers only", "Rainwater only"],
+            "correct_index": 1,
+            "explanation": "Most cities rely on surface water (rivers/lakes) and groundwater; sources vary by region."
+        },
+        {
+            "q": "Who invented the steam engine that helped early water pumping in the 1700s?",
+            "options": ["James Watt", "Isaac Newton", "Thomas Edison", "Nikola Tesla"],
+            "correct_index": 0,
+            "explanation": "James Watt improved steam engine designs that were important for pumping and industrial uses."
+        },
+        {
+            "q": "What is a common method to make seawater drinkable?",
+            "options": ["Filtration only", "Chlorination", "Desalination", "Sedimentation"],
+            "correct_index": 2,
+            "explanation": "Desalination removes salts and minerals from seawater, making it suitable to drink."
+        },
+        {
+            "q": "Which documentary theme would most likely be featured on a water-focused film?",
+            "options": ["Space travel", "Water scarcity and conservation", "Mountain climbing", "Astrophysics"],
+            "correct_index": 1,
+            "explanation": "Water-focused documentaries often highlight scarcity, conservation, pollution, and solutions."
+        },
+        {
+            "q": "What is the main reason to avoid drinking large volumes right before bed?",
+            "options": ["It causes headaches", "It can disrupt sleep with bathroom trips", "It freezes in the body", "It removes vitamins"],
+            "correct_index": 1,
+            "explanation": "Drinking a lot before sleep may lead to waking up at night to use the bathroom, disrupting sleep."
+        },
+        {
+            "q": "Which gas dissolves in water and is essential for plant photosynthesis?",
+            "options": ["Oxygen", "Nitrogen", "Carbon dioxide", "Helium"],
+            "correct_index": 2,
+            "explanation": "Carbon dioxide dissolves in water and is used by aquatic plants in photosynthesis."
+        },
+        {
+            "q": "Which ancient civilization developed advanced irrigation systems?",
+            "options": ["Incas", "Indus Valley, Mesopotamia, and Egyptians", "Victorians", "Aztecs only"],
+            "correct_index": 1,
+            "explanation": "Civilizations like Mesopotamia, the Indus Valley, and ancient Egypt developed early irrigation to support agriculture."
+        },
+        {
+            "q": "What is one simple way households can conserve water daily?",
+            "options": ["Run taps while brushing teeth", "Take longer showers", "Repair leaks and use efficient fixtures", "Water the lawn midday"],
+            "correct_index": 2,
+            "explanation": "Fixing leaks and using efficient fixtures (low-flow faucets, showerheads) is an effective way to conserve water."
+        }
+    ]
+    return sample
 
-    st.title("Daily Water Quiz")
+def get_daily_quiz():
+    today_str = date.today().isoformat()
+    if st.session_state.get("daily_quiz_date") == today_str and st.session_state.get("daily_quiz"):
+        return st.session_state["daily_quiz"]
+    quiz = generate_quiz_via_model()
+    st.session_state["daily_quiz_date"] = today_str
+    st.session_state["daily_quiz"] = quiz
+    return quiz
 
-    # Initialize stored answers
-    if "quiz_answers" not in st.session_state or st.session_state.quiz_answers is None:
-        st.session_state.quiz_answers = [-1] * len(quiz)
-
-    # Display each question
+def grade_quiz_and_explain(quiz, answers):
+    results = []
+    score = 0
     for i, item in enumerate(quiz):
-        st.markdown(f"### Q{i+1}. {item['q']}")
-        st.session_state.quiz_answers[i] = st.radio(
-            f"Select your answer for Q{i+1}",
-            list(range(4)),
-            format_func=lambda idx, opts=item["options"]: opts[idx],
-            index=st.session_state.quiz_answers[i] if st.session_state.quiz_answers[i] != -1 else 0,
-            key=f"quiz_q_{i}"
-        )
+        correct = item.get("correct_index", 0)
+        selected = answers[i]
+        is_correct = (selected == correct)
+        if is_correct:
+            score += 1
+        explanation = item.get("explanation")
+        if not explanation:
+            context = f"Explain why the option '{item['options'][correct]}' is the correct answer for the question: {item['q']}"
+            explanation = ask_gemini_for_message(context, "This is the correct answer because of established facts.")
+        results.append({
+            "q": item["q"],
+            "options": item["options"],
+            "correct_index": correct,
+            "selected_index": selected,
+            "is_correct": is_correct,
+            "explanation": explanation
+        })
+    return results, score
 
-    # Submit
-    if st.button("Submit Quiz"):
-        st.session_state.quiz_submitted = True
-        st.session_state.quiz_results, st.session_state.quiz_score = grade_quiz_and_explain(
-            quiz, st.session_state.quiz_answers
-        )
+# -------------------------------
+# RESET helper (safe, fixed)
+# -------------------------------
+def reset_page_inputs_session():
+    """
+    Safely clear session-only user inputs and ephemeral page-level values.
+    Do NOT modify database (user_data) or credentials. Only session-level entries cleared.
+    Then rerun so Streamlit widgets reflect cleared state.
+    """
+    # Keys to preserve (auth & navigation)
+    preserve = {"logged_in", "username", "page"}
+    # Collect keys to delete
+    keys_to_delete = [k for k in list(st.session_state.keys()) if k not in preserve]
 
-        st.success(f"You scored {st.session_state.quiz_score} / {len(quiz)}")
+    for k in keys_to_delete:
+        try:
+            del st.session_state[k]
+        except Exception:
+            # some Streamlit internal keys might be protected; skip them
+            pass
+
+    # Recreate important defaults (without assigning None where possible)
+    st.session_state.total_intake = 0.0
+    st.session_state.water_intake_log = []
+    st.session_state.chat_history = []
+    st.session_state.show_chatbot = False
+    # quiz defaults
+    st.session_state.quiz_answers = None
+    st.session_state.quiz_submitted = False
+    st.session_state.quiz_results = None
+    st.session_state.quiz_score = 0
+    st.session_state.daily_quiz = None
+    st.session_state.daily_quiz_date = None
+    # last_goal_completed_at might be absent; do not force None assignment if problematic
+    try:
+        st.session_state.last_goal_completed_at = None
+    except Exception:
+        pass
+
+    # Rerun app so widgets reflect cleared values
+    st.experimental_rerun()
+
 # -------------------------------
 # LOGIN PAGE
 # -------------------------------
@@ -1922,6 +2058,3 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
-
-
-
