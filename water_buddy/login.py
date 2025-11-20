@@ -1273,7 +1273,7 @@ elif st.session_state.page == "thirsty_cup":
                 st.session_state.thirsty_claimed = True
                 st.success("🪙 Coin added! Check top-right.")
                 # rerun to refresh header coin count
-                st.experimental_rerun()
+                st.rerun()
         with c2:
             if st.button("Retry"):
                 # restart by toggling playing flag (re-runs component)
@@ -2102,6 +2102,7 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
 
