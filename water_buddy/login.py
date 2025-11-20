@@ -747,6 +747,7 @@ elif st.session_state.page == "settings":
     age = st.text_input("Age", value=saved.get("Age", ""), key="settings_age")
     country = st.selectbox("Country", countries, index=countries.index(saved.get("Country", "India")) if saved.get("Country") else countries.index("India"), key="settings_country")
     
+    
     st.write("---")
     
     height_unit = st.radio("Height Unit", ["cm", "feet"], horizontal=True, key="settings_height_unit")
@@ -2058,6 +2059,7 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
 
