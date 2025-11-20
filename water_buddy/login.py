@@ -1452,7 +1452,6 @@ elif st.session_state.page == "home":
     
     if not st.session_state.logged_in:
         go_to_page("login")
-    set_background() # <-- add here
 
     username = st.session_state.username
     ensure_user_structures(username)
@@ -1461,7 +1460,6 @@ elif st.session_state.page == "home":
 
     # Load / auto-reset today's intake for this user (doesn't wipe profile)
     load_today_intake_into_session(username)
-    # Ensure weekly record exists and is for current week
     ensure_week_current(username)
 
     daily_goal = user_data.get(username, {}).get("water_profile", {}).get(
@@ -1470,11 +1468,9 @@ elif st.session_state.page == "home":
     
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
 
-    # NOTE: Home temperature/weather removed per request.
-    # Mascot display is handled by choose_mascot_and_message (special-case between 13:40-14:30)
-
     fill_percent = min(st.session_state.total_intake / daily_goal, 1.0) if daily_goal > 0 else 0
     
+    # 🍼 WATER BOTTLE
     bottle_html = f"""
     <div style='width: 120px; height: 300px; border: 3px solid #1A73E8; border-radius: 20px; position: relative; margin: auto; 
     background: linear-gradient(to top, #1A73E8 {fill_percent*100}%, #E0E0E0 {fill_percent*100}%);'>
@@ -1484,14 +1480,21 @@ elif st.session_state.page == "home":
     </div>
     """
     st.markdown(bottle_html, unsafe_allow_html=True)
-    
-    # NEW RESET BUTTON BELOW BOTTLE
-if st.button("🔄 Reset", key="reset_home_new"):
-    reset_page_inputs_session()
-    st.rerun()
+
+    # ✅ NEW RESET BUTTON RIGHT BELOW THE BOTTLE
+    st.markdown("<br>", unsafe_allow_html=True)
+    reset_col = st.columns([1,2,1])
+    with reset_col[1]:
+        if st.button("🔄 Reset Bottle", key="reset_bottle"):
+            st.session_state.total_intake = 0.0
+            st.session_state.water_intake_log = []
+            st.session_state.water_input = ""
+            st.success("Bottle reset successfully!")
+            st.rerun()
 
     st.write("---")
     
+    # WATER INPUT
     water_input = st.text_input("Enter water amount (in ml):", key="water_input")
     
     if st.button("➕ Add Water"):
@@ -1504,21 +1507,16 @@ if st.button("🔄 Reset", key="reset_home_new"):
                 st.session_state.water_intake_log.append(f"{ml} ml")
                 st.success(f"✅ Added {ml} ml of water!")
                 
-                # Persist today's total intake (only update daily_intake and weekly_data)
+                # DB SAVE (only updates today's total)
                 ensure_user_structures(username)
                 user_data[username].setdefault("daily_intake", {})
-                user_data[username].setdefault("weekly_data", {"week_start": None, "days": {}})
-                user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
-                user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
-
-                # Save today's intake without wiping other user fields
                 user_data[username]["daily_intake"][today_str] = st.session_state.total_intake
                 user_data[username]["daily_intake"]["last_login_date"] = today_str
 
-                # Also update weekly_data so the weekly graph remains
+                # Update weekly
                 update_weekly_record_on_add(username, today_str, st.session_state.total_intake)
 
-                # Update streak info (unchanged logic)
+                # Update streak
                 user_streak = user_data[username]["streak"]
                 daily_goal_for_checks = user_data[username]["water_profile"].get("daily_goal", 2.5)
                 
@@ -1526,45 +1524,40 @@ if st.button("🔄 Reset", key="reset_home_new"):
                     if today_str not in user_streak.get("completed_days", []):
                         user_streak.setdefault("completed_days", []).append(today_str)
                         user_streak["completed_days"] = sorted(list(set(user_streak["completed_days"])))
-                        
+
                         completed_dates = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in user_streak["completed_days"]])
                         
                         streak = 0
                         day_cursor = date.today()
-                        while True:
-                            if day_cursor in completed_dates:
-                                streak += 1
-                                day_cursor = day_cursor - timedelta(days=1)
-                            else:
-                                break
+                        while day_cursor in completed_dates:
+                            streak += 1
+                            day_cursor -= timedelta(days=1)
                         
                         user_streak["current_streak"] = streak
-                        user_data[username]["streak"] = user_streak
 
-                # Save user_data after modifications
                 save_user_data(user_data)
                 
-                # Trigger post-goal mascot: set session timestamp when user first completes
-                if st.session_state.total_intake >= daily_goal:
-                    if not st.session_state.last_goal_completed_at:
-                        st.session_state.last_goal_completed_at = datetime.now().isoformat()
+                # Goal timestamp
+                if st.session_state.total_intake >= daily_goal and not st.session_state.last_goal_completed_at:
+                    st.session_state.last_goal_completed_at = datetime.now().isoformat()
                 
-                # Rerun to refresh UI
                 st.rerun()
                 st.stop()
                 
             except ValueError:
-                st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
+                st.error("❌ Enter a valid number.")
         else:
-            st.error("❌ Please enter a valid number like 700, 700ml, or 700 ml.")
+            st.error("❌ Enter a valid number.")
 
+    # LOG
     if st.session_state.water_intake_log:
         st.write("### Today's Log:")
         for i, entry in enumerate(st.session_state.water_intake_log, 1):
             st.write(f"{i}. {entry}")
-            
+
     st.write("---")
-    
+
+    # PAGE BUTTONS
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
@@ -1579,130 +1572,38 @@ if st.button("🔄 Reset", key="reset_home_new"):
     with col4:
         if st.button("🔥 Daily Streak"):
             go_to_page("daily_streak")
-
     with col5:
         if st.button("🚪 Logout"):
-            # clear session-only state, keep files intact
             st.session_state.logged_in = False
             st.session_state.username = ""
             st.session_state.total_intake = 0.0
             st.session_state.water_intake_log = []
             go_to_page("login")
-    st.write("")
-    st.write("")
 
-    # NEW: Quiz navigation button (like other page buttons)
-    st.write("")
+    # QUIZ BUTTON
     if st.button("🧠 Take Today's Quiz"):
         go_to_page("quiz")
 
-    # Chatbot (unchanged)
-    st.markdown("""
-    <style>
-    .chat-button {
-        position: fixed;
-        bottom: 25px;
-        right: 25px;
-        background-color: #1A73E8;
-        border-radius: 50%;
-        width: 60px;
-        height: 60px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-size: 28px;
-        cursor: pointer;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        z-index: 999;
-    }
-    .chat-window {
-        position: fixed;
-        bottom: 100px;
-        right: 25px;
-        width: 350px;
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        padding: 15px;
-        z-index: 1000;
-        overflow-y: auto;
-        max-height: 400px;
-        scrollbar-width: none;
-    }
-    .chat-window::-webkit-scrollbar {
-        display: none;
-    }
-    .bot-message {
-        text-align: left;
-        color: #222;
-        background: #F1F1F1;
-        padding: 8px 10px;
-        border-radius: 10px;
-        margin: 5px 0;
-        display: inline-block;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    chat_button_clicked = st.button("🤖", key="chat_button", help="Chat with Water Buddy")
-    if chat_button_clicked:
-        st.session_state.show_chatbot = not st.session_state.show_chatbot
-
-    if st.session_state.show_chatbot:
-        with st.container():
-            st.markdown("<div class='chat-window'>", unsafe_allow_html=True)
-            st.markdown("""
-            <div style='text-align:center; color:#1A73E8; font-weight:600; font-size:18px;'>
-                💬 Water Buddy <span style='font-size:14px; color:#555;'>— powered by Gemini 2.5 Flash</span>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            for entry in st.session_state.chat_history:
-                if entry["sender"] == "bot":
-                    st.markdown(f"<div class='bot-message'>🤖 {entry['text']}</div>", unsafe_allow_html=True)
-            
-            user_msg = st.text_input("Type your message...", key="chat_input")
-            
-            if st.button("Send", key="send_btn"):
-                if user_msg.strip():
-                    try:
-                        if model:
-                            prompt = f"You are Water Buddy, a friendly AI hydration assistant. Respond conversationally.\nUser: {user_msg}"
-                            response = model.generate_content(prompt)
-                            reply = response.text.strip()
-                        else:
-                            reply = "⚠️ Chatbot not configured currently."
-                    except Exception:
-                        reply = "⚠️ Sorry, I’m having trouble connecting right now."
-                    
-                    st.session_state.chat_history.append({"sender": "bot", "text": reply})
-                    st.rerun()
-
-    # Mascot inline on Home page (below the main content)
+    # MASCOT
     mascot = choose_mascot_and_message("home", username)
     render_mascot_inline(mascot)
 
-    # Home page note (requested)
+    # NOTE
     st.markdown(
-        '<p style="font-size:14px; color:gray;">Use a calibrated water bottle to enter correct value of water intake. If needed, you can ask the Water Buddy chatbot for a buying link.</p>',
+        '<p style="font-size:14px; color:gray;">Use a calibrated water bottle for correct measurements.</p>',
         unsafe_allow_html=True
     )
 
-    # --- GAME BUTTON AT BOTTOM OF HOME ---
+    # GAME BUTTON
     st.markdown("<br><br>", unsafe_allow_html=True)
-
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         if st.button("🎮 Play Thirsty Cup", use_container_width=True):
-            st.session_state.page = "thirsty_cup"  # fixed to existing page
+            st.session_state.page = "thirsty_cup"
             st.rerun()
 
-    # --------------------------------------------------
-    # COLOR PICKER AT BOTTOM OF PAGE
-    # --------------------------------------------------
-    st.markdown("---")  # divider line
-
+    # COLOR PICKER
+    st.markdown("---")
     st.subheader("Customize Background Color 🎨")
 
     if "show_color_picker" not in st.session_state:
@@ -1718,6 +1619,7 @@ if st.button("🔄 Reset", key="reset_home_new"):
         )
         st.session_state.background_color = new_color
         st.success("Background color updated!")
+
 
 # -------------------------------
 # QUIZ PAGE
@@ -2233,6 +2135,7 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
 
