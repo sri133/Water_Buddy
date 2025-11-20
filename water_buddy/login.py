@@ -663,7 +663,7 @@ def reset_page_inputs_session():
         pass
 
     # Rerun app so widgets reflect cleared values
-    st.experimental_rerun()
+    st.rerun()
 
 # -------------------------------
 # LOGIN PAGE
@@ -1280,7 +1280,7 @@ elif st.session_state.page == "thirsty_cup":
                 st.session_state.thirsty_playing = False
                 st.session_state.thirsty_result = None
                 st.session_state.thirsty_claimed = False
-                st.experimental_rerun()
+                st.rerun()
         with c3:
             if st.button("Get Motivation"):
                 try:
@@ -2102,6 +2102,7 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
 
