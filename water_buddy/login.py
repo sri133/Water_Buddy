@@ -495,7 +495,6 @@ def render_mascot_inline(mascot: Optional[Dict[str, str]]):
             """,
             unsafe_allow_html=True
         )
-
 # -------------------------------
 # QUIZ PAGE
 # -------------------------------
@@ -1932,4 +1931,5 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
