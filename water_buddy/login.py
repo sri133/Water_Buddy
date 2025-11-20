@@ -723,12 +723,7 @@ if st.session_state.page == "login":
         '<p style="font-size:14px; color:gray;">If you don’t have an account, please sign up first, then change the option to Login and submit again so you can log in.</p>',
         unsafe_allow_html=True
     )
-
-    # Reset button (bottom) - clears page-level inputs
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🔄 Reset Page", key="reset_login"):
-        reset_page_inputs_session()
-
+    
 # -------------------------------
 # PERSONAL SETTINGS PAGE (unchanged behaviour)
 # -------------------------------
@@ -1490,6 +1485,11 @@ elif st.session_state.page == "home":
     """
     st.markdown(bottle_html, unsafe_allow_html=True)
     
+    # NEW RESET BUTTON BELOW BOTTLE
+if st.button("🔄 Reset", key="reset_home_new"):
+    reset_page_inputs_session()
+    st.rerun()
+
     st.write("---")
     
     water_input = st.text_input("Enter water amount (in ml):", key="water_input")
@@ -1689,10 +1689,6 @@ elif st.session_state.page == "home":
         unsafe_allow_html=True
     )
 
-    # Reset button (bottom) - clears session-level inputs only (not DB)
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🔄 Reset Page", key="reset_home"):
-        reset_page_inputs_session()
     # --- GAME BUTTON AT BOTTOM OF HOME ---
     st.markdown("<br><br>", unsafe_allow_html=True)
 
@@ -1877,11 +1873,6 @@ elif st.session_state.page == "quiz":
     with col5:
         if st.button("🔥 Daily Streak"):
             go_to_page("daily_streak")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🔄 Reset Page", key="reset_quiz"):
-        reset_page_inputs_session()
-
 
 # -------------------------------
 # REPORT PAGE (no mascot)
@@ -2242,6 +2233,7 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
 
