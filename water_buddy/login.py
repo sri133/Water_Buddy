@@ -964,7 +964,7 @@ elif st.session_state.page == "thirsty_cup":
             st.session_state.thirsty_result = None
             st.session_state.thirsty_claimed = False
             # rerun to show game component
-            st.experimental_rerun()
+            st.rerun()
 
     # When playing -> show the full-screen style game inside a responsive component
     if st.session_state.thirsty_playing:
@@ -2102,5 +2102,6 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
