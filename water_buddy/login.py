@@ -495,22 +495,22 @@ def render_mascot_inline(mascot: Optional[Dict[str, str]]):
             """,
             unsafe_allow_html=True
         )
-# -------------------------------
+        # -------------------------------
 # QUIZ PAGE
 # -------------------------------
 elif st.session_state.page == "quiz":
     if not st.session_state.logged_in:
         go_to_page("login")
 
-    quiz = get_daily_quiz()   # <- VERY IMPORTANT: use this, not generate_quiz_via_model()
+    quiz = get_daily_quiz()   # NEW questions per day
 
     st.title("Daily Water Quiz")
 
-    # Initialize answer list if not done
+    # Initialize stored answers
     if "quiz_answers" not in st.session_state or st.session_state.quiz_answers is None:
         st.session_state.quiz_answers = [-1] * len(quiz)
 
-    # Display questions
+    # Display each question
     for i, item in enumerate(quiz):
         st.markdown(f"### Q{i+1}. {item['q']}")
         st.session_state.quiz_answers[i] = st.radio(
@@ -521,23 +521,14 @@ elif st.session_state.page == "quiz":
             key=f"quiz_q_{i}"
         )
 
-    # Submit button
+    # Submit
     if st.button("Submit Quiz"):
         st.session_state.quiz_submitted = True
         st.session_state.quiz_results, st.session_state.quiz_score = grade_quiz_and_explain(
             quiz, st.session_state.quiz_answers
         )
 
-    # Show results
-    if st.session_state.quiz_submitted:
-        st.subheader(f"Your Score: {st.session_state.quiz_score}/10")
-        for i, result in enumerate(st.session_state.quiz_results):
-            st.markdown(f"### Q{i+1}. {result['q']}")
-            st.write(f"Correct Answer: **{result['options'][result['correct_index']]}**")
-            st.write(f"Your Answer: {result['options'][result['selected_index']]}")
-            st.info(result["explanation"])
-
-
+        st.success(f"You scored {st.session_state.quiz_score} / {len(quiz)}")
 # -------------------------------
 # LOGIN PAGE
 # -------------------------------
@@ -1931,5 +1922,6 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
