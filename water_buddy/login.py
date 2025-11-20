@@ -912,9 +912,12 @@ elif st.session_state.page == "water_profile":
         reset_page_inputs_session()
 
 # -------------------------------
-# THIRSTY CUP - Full Screen Game Page (updated)
+# THIRSTY CUP - Full Screen Game Page (FULL with Shop)
 # -------------------------------
 elif st.session_state.page == "thirsty_cup":
+    import time  # used for small pauses when trying to bridge JS->Python
+    from streamlit.components.v1 import html as st_html
+
     # Require login
     if not st.session_state.logged_in:
         go_to_page("login")
@@ -936,14 +939,11 @@ elif st.session_state.page == "thirsty_cup":
     ensure_user_structures(username)
     user_profile = user_data.setdefault(username, {})
     user_purchases = user_profile.setdefault("purchases", {})  # e.g. {"cup_red": True}
-    user_selected = user_profile.setdefault("selected_cup", None)
+    # coins persisted in user_profile["coins"]
+    user_profile.setdefault("coins", user_profile.get("coins", st.session_state.get("coins", 0)))
+    user_selected = user_profile.get("selected_cup", None)
     if user_selected and not st.session_state.thirsty_selected_cup:
         st.session_state.thirsty_selected_cup = user_selected
-
-    # default coins from persisted data (if any)
-    if "coins" not in user_profile:
-        user_profile.setdefault("coins", st.session_state.get("coins", 0))
-        save_user_data(user_data)
 
     # Sync coins from persistent storage on first load
     if "coins_synced" not in st.session_state:
@@ -991,7 +991,6 @@ elif st.session_state.page == "thirsty_cup":
             st.write("Current Cup:")
         with cup_preview_col2:
             sel = st.session_state.get("thirsty_selected_cup") or "cup_default"
-            # simple textual preview (could be an image in assets)
             st.markdown(f"<div style='padding:8px 12px; border-radius:10px; display:inline-block; background:#f7fbff; font-weight:700;'>{sel.replace('_',' ').title()}</div>", unsafe_allow_html=True)
 
         if st.button("▶️ Play Thirsty Cup", key="tc_play_btn"):
@@ -1100,15 +1099,15 @@ elif st.session_state.page == "thirsty_cup":
         cup_color = style["color"]
         cup_shape = style["shape"]
 
-        # Game HTML + JS updated: spawn drops one-by-one from random X, expose result to localStorage
-        game_html = rf"""
+        # Build game_html WITHOUT using f-strings for the whole blob (avoid brace-parsing issues)
+        game_html = """
         <style>
-        html, body {{ margin:0; padding:0; height:100%; }}
-        .tc-root {{ position:relative; width:100vw; height:calc(100vh - 120px); display:flex; align-items:center; justify-content:center; }}
-        #tc-canvas {{ width:100%; height:100%; display:block; background: linear-gradient(#C9E8FF, #E0F7FA); }}
-        #tc-overlay {{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }}
-        .tc-panel {{ pointer-events:auto; backdrop-filter: blur(6px); background: rgba(255,255,255,0.9); padding:24px; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.12); text-align:center; }}
-        .tc-btn {{ padding:10px 16px; border-radius:10px; border:none; cursor:pointer; font-weight:700; background:#1A73E8; color:white; }}
+        html, body { margin:0; padding:0; height:100%; }
+        .tc-root { position:relative; width:100vw; height:calc(100vh - 120px); display:flex; align-items:center; justify-content:center; }
+        #tc-canvas { width:100%; height:100%; display:block; background: linear-gradient(#C9E8FF, #E0F7FA); }
+        #tc-overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+        .tc-panel { pointer-events:auto; backdrop-filter: blur(6px); background: rgba(255,255,255,0.9); padding:24px; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.12); text-align:center; }
+        .tc-btn { padding:10px 16px; border-radius:10px; border:none; cursor:pointer; font-weight:700; background:#1A73E8; color:white; }
         </style>
 
         <div class="tc-root">
@@ -1117,32 +1116,31 @@ elif st.session_state.page == "thirsty_cup":
         </div>
 
         <script>
-        (function(){{
+        (function(){
             // Responsive canvas size
             const canvas = document.getElementById('tc-canvas');
             const overlay = document.getElementById('tc-overlay');
             const ctx = canvas.getContext('2d');
 
-            function resizeCanvas() {{
+            function resizeCanvas() {
                 const rect = canvas.getBoundingClientRect();
                 canvas.width = rect.width;
                 canvas.height = rect.height;
-            }}
+            }
             resizeCanvas();
             window.addEventListener('resize', resizeCanvas);
 
             // Game params
             const totalDrops = 16;
-            const dropSizeBase = 12;
             const dropSpeedMin = 1.2;
             const dropSpeedMax = 3.2;
             const cupWidthBase = Math.max(80, Math.round(canvas.width * 0.12));
             const cupHeightBase = Math.max(36, Math.round(canvas.height * 0.06));
             let cupY = canvas.height - cupHeightBase - 40;
 
-            // cup visuals passed from python
-            const cupColor = "{cup_color}";
-            const cupShape = "{cup_shape}";
+            // cup visuals passed from python (placeholder tokens)
+            const cupColor = "{CUP_COLOR}";
+            const cupShape = "{CUP_SHAPE}";
 
             // state: spawn one drop at a time
             let currentDrop = null; // {x, y, speed, size, active}
@@ -1153,55 +1151,19 @@ elif st.session_state.page == "thirsty_cup":
             let pointerX = canvas.width/2;
             let keyboardVel = 0;
 
-            function spawnOneDrop() {{
+            function spawnOneDrop() {
                 const size = Math.max(8, Math.round(Math.min(canvas.width, canvas.height) * 0.01));
                 const x = Math.random() * (canvas.width - size*2) + size;
                 const speed = Math.random() * (dropSpeedMax-dropSpeedMin) + dropSpeedMin;
-                return {{x:x, y:-20, speed:speed, size:size, active:true}};
-            }}
+                return {x:x, y:-20, speed:speed, size:size, active:true};
+            }
 
-            function startNextDrop() {{
+            function startNextDrop() {
                 currentDrop = spawnOneDrop();
-            }}
+            }
 
-            function drawCup(x) {{
-                const cx = x - cupWidthBase/2;
-                const cy = cupY;
-                ctx.save();
-                ctx.fillStyle = cupColor;
-                // simple shapes: rect or rounded with slight differences
-                if (cupShape === 'rect' || cupShape === 'neon' || cupShape === 'glass' || cupShape === 'premium') {{
-                    ctx.beginPath();
-                    ctx.roundRect(cx, cy, cupWidthBase, cupHeightBase, 12);
-                    ctx.fill();
-                }} else if (cupShape === 'smile') {{
-                    ctx.beginPath();
-                    ctx.ellipse(x, cy+cupHeightBase/2, cupWidthBase/2, cupHeightBase/1.6, 0, 0, Math.PI*2);
-                    ctx.fill();
-                    // eyes
-                    ctx.fillStyle = 'white'; ctx.fillRect(x-18, cy+8, 6,6); ctx.fillRect(x+12, cy+8,6,6);
-                }} else if (cupShape === 'cat') {{
-                    ctx.beginPath();
-                    ctx.ellipse(x, cy+cupHeightBase/2, cupWidthBase/2, cupHeightBase/1.6, 0, 0, Math.PI*2);
-                    ctx.fill();
-                    // ears
-                    ctx.fillStyle = cupColor;
-                    ctx.beginPath(); ctx.moveTo(x - cupWidthBase/2 + 6, cy); ctx.lineTo(x - cupWidthBase/2 + 18, cy-18); ctx.lineTo(x - cupWidthBase/2 + 30, cy); ctx.fill();
-                    ctx.beginPath(); ctx.moveTo(x + cupWidthBase/2 - 6, cy); ctx.lineTo(x + cupWidthBase/2 - 18, cy-18); ctx.lineTo(x + cupWidthBase/2 - 30, cy); ctx.fill();
-                }} else if (cupShape === 'robot') {{
-                    ctx.fillStyle = cupColor;
-                    ctx.fillRect(cx, cy, cupWidthBase, cupHeightBase);
-                    ctx.fillStyle = '#222'; ctx.fillRect(cx + cupWidthBase/2 - 6, cy + 6, 12, 12);
-                }} else {{
-                    ctx.beginPath();
-                    ctx.roundRect(cx, cy, cupWidthBase, cupHeightBase, 12);
-                    ctx.fill();
-                }}
-                ctx.restore();
-            }}
-
-            // small helper to draw rounded rects (polyfill if needed)
-            CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {{
+            // polyfill roundRect for canvas
+            CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
                 if (w < 2 * r) r = w / 2;
                 if (h < 2 * r) r = h / 2;
                 this.beginPath();
@@ -1212,9 +1174,42 @@ elif st.session_state.page == "thirsty_cup":
                 this.arcTo(x, y, x + w, y, r);
                 this.closePath();
                 return this;
-            }};
+            };
 
-            function drawDrop(d) {{
+            function drawCup(x) {
+                const cx = x - cupWidthBase/2;
+                const cy = cupY;
+                ctx.save();
+                ctx.fillStyle = cupColor;
+                if (cupShape === 'rect' || cupShape === 'neon' || cupShape === 'glass' || cupShape === 'premium') {
+                    ctx.beginPath();
+                    ctx.roundRect(cx, cy, cupWidthBase, cupHeightBase, 12);
+                    ctx.fill();
+                } else if (cupShape === 'smile') {
+                    ctx.beginPath();
+                    ctx.ellipse(x, cy+cupHeightBase/2, cupWidthBase/2, cupHeightBase/1.6, 0, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.fillStyle = 'white'; ctx.fillRect(x-18, cy+8, 6,6); ctx.fillRect(x+12, cy+8,6,6);
+                } else if (cupShape === 'cat') {
+                    ctx.beginPath();
+                    ctx.ellipse(x, cy+cupHeightBase/2, cupWidthBase/2, cupHeightBase/1.6, 0, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.fillStyle = cupColor;
+                    ctx.beginPath(); ctx.moveTo(x - cupWidthBase/2 + 6, cy); ctx.lineTo(x - cupWidthBase/2 + 18, cy-18); ctx.lineTo(x - cupWidthBase/2 + 30, cy); ctx.fill();
+                    ctx.beginPath(); ctx.moveTo(x + cupWidthBase/2 - 6, cy); ctx.lineTo(x + cupWidthBase/2 - 18, cy-18); ctx.lineTo(x + cupWidthBase/2 - 30, cy); ctx.fill();
+                } else if (cupShape === 'robot') {
+                    ctx.fillStyle = cupColor;
+                    ctx.fillRect(cx, cy, cupWidthBase, cupHeightBase);
+                    ctx.fillStyle = '#222'; ctx.fillRect(cx + cupWidthBase/2 - 6, cy + 6, 12, 12);
+                } else {
+                    ctx.beginPath();
+                    ctx.roundRect(cx, cy, cupWidthBase, cupHeightBase, 12);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+
+            function drawDrop(d) {
                 ctx.save();
                 const grd = ctx.createLinearGradient(d.x, d.y - d.size, d.x, d.y + d.size*1.5);
                 grd.addColorStop(0, '#E0F7FA');
@@ -1224,57 +1219,50 @@ elif st.session_state.page == "thirsty_cup":
                 ctx.ellipse(d.x, d.y, d.size, d.size*1.4, 0, 0, Math.PI*2);
                 ctx.fill();
                 ctx.restore();
-            }}
+            }
 
-            function update(dt) {{
+            function update(dt) {
                 cupY = canvas.height - cupHeightBase - 40;
-                if (keyboardVel !== 0) {{
+                if (keyboardVel !== 0) {
                     pointerX += keyboardVel * dt * 0.18;
-                }}
+                }
                 pointerX = Math.max(cupWidthBase/2, Math.min(canvas.width - cupWidthBase/2, pointerX));
 
-                if (!currentDrop) {{
+                if (!currentDrop) {
                     startNextDrop();
-                }} else {{
+                } else {
                     currentDrop.y += currentDrop.speed * dt * 0.06;
                     const cupLeft = pointerX - cupWidthBase/2;
                     const cupRight = pointerX + cupWidthBase/2;
                     const cupTop = cupY;
-                    if (currentDrop.y + currentDrop.size >= cupTop && currentDrop.x > cupLeft && currentDrop.x < cupRight) {{
-                        // caught
+                    if (currentDrop.y + currentDrop.size >= cupTop && currentDrop.x > cupLeft && currentDrop.x < cupRight) {
                         currentDrop.active = false;
                         caught += 1;
                         currentDrop = null;
-                    }} else if (currentDrop.y > canvas.height + 20) {{
-                        // missed
+                    } else if (currentDrop.y > canvas.height + 20) {
                         currentDrop.active = false;
                         missed += 1;
                         currentDrop = null;
-                    }}
-                }}
-            }}
+                    }
+                }
+            }
 
-            function draw() {{
+            function draw() {
                 ctx.clearRect(0,0,canvas.width,canvas.height);
 
-                // decorative waves
                 ctx.save();
                 ctx.globalAlpha = 0.06;
-                for (let i=0;i<4;i++){{
+                for (let i=0;i<4;i++){
                     ctx.beginPath();
                     ctx.ellipse(canvas.width/2, canvas.height/2 + i*26, canvas.width*0.9, 90 + i*12, 0, 0, Math.PI*2);
                     ctx.fillStyle = '#1CA3A3';
                     ctx.fill();
-                }}
+                }
                 ctx.restore();
 
-                // draw drop if present
                 if (currentDrop && currentDrop.active) drawDrop(currentDrop);
-
-                // draw cup
                 drawCup(pointerX);
 
-                // HUD
                 ctx.save();
                 ctx.fillStyle = '#0b63c6';
                 ctx.font = Math.max(14, Math.round(canvas.width * 0.015)) + 'px Inter, Arial';
@@ -1282,105 +1270,99 @@ elif st.session_state.page == "thirsty_cup":
                 ctx.fillStyle = '#555';
                 ctx.fillText('Missed: ' + missed, 18, 62);
                 ctx.restore();
-            }}
+            }
 
-            function checkEnd() {{
+            function checkEnd() {
                 if (caught >= totalDrops) return 'win';
-                // if player missed enough so remaining cannot reach total? for simplicity: if missed > (totalDrops - caught) and currentDrop==null and spawn count reached -> lose
-                // We'll track how many drops have been spawned by counting caught+missed
                 const spawned = caught + missed + (currentDrop ? 1 : 0);
-                if (spawned >= totalDrops && !currentDrop) {{
-                    // round finished
+                if (spawned >= totalDrops && !currentDrop) {
                     return (caught >= totalDrops) ? 'win' : 'lose';
-                }}
+                }
                 return null;
-            }}
+            }
 
-            // main loop
-            function loop(ts) {{
+            function loop(ts) {
                 const dt = ts - lastTime;
                 lastTime = ts;
                 if (!running) return;
                 update(dt);
                 draw();
                 const res = checkEnd();
-                if (res) {{
+                if (res) {
                     running = false;
                     showResult(res);
-                }} else {{
+                } else {
                     requestAnimationFrame(loop);
-                }}
-            }}
+                }
+            }
 
-            function showResult(type) {{
+            function showResult(type) {
                 overlay.innerHTML = '';
                 const panel = document.createElement('div');
                 panel.className = 'tc-panel';
-                if (type === 'win') {{
+                if (type === 'win') {
                     panel.innerHTML = `<div style="font-size:36px; font-weight:800; color:#1A73E8;">You Win! 🏆</div>
                                        <div style="margin-top:8px;">Perfect catch — you earned a coin!</div>`;
-                }} else {{
+                } else {
                     panel.innerHTML = `<div style="font-size:36px; font-weight:800; color:#ff6b6b;">You Lose</div>
                                        <div style="margin-top:8px;">Some drops were missed — try again!</div>`;
-                }}
-                // Add buttons (Claim inside iframe is just UI; we store result to localStorage so Streamlit side can attempt to read it)
+                }
+
                 const claimBtn = document.createElement('button');
                 claimBtn.className = 'tc-btn';
                 claimBtn.style.marginTop = '12px';
                 claimBtn.innerText = 'Set Result';
-                claimBtn.onclick = function() {{
-                    // write result to localStorage so the host page (Streamlit) can attempt to read it
-                    try {{
+                claimBtn.onclick = function() {
+                    try {
                         localStorage.setItem('tc_result', type);
                         alert('Result set: ' + type + '\\nNow click "Retrieve Game Result" in the Streamlit UI to register it.');
-                    }} catch(e) {{
+                    } catch(e) {
                         alert('Unable to write result to localStorage due to browser restrictions.');
-                    }}
-                }};
+                    }
+                };
                 panel.appendChild(claimBtn);
 
                 overlay.appendChild(panel);
-
-                // persist result in localStorage for host to retrieve
-                try {{ localStorage.setItem('tc_result', type); }} catch(e){{ /* ignore */ }}
-
+                try { localStorage.setItem('tc_result', type); } catch(e){}
                 window.__tc_result = type;
-            }}
+            }
 
-            // input handling
-            canvas.addEventListener('mousemove', (e)=>{{
+            canvas.addEventListener('mousemove', (e)=>{
                 const rect = canvas.getBoundingClientRect();
                 pointerX = (e.clientX - rect.left) * (canvas.width / rect.width);
-            }});
-            canvas.addEventListener('touchstart', (e)=>{{
+            });
+            canvas.addEventListener('touchstart', (e)=>{
                 const rect = canvas.getBoundingClientRect();
                 pointerX = (e.touches[0].clientX - rect.left) * (canvas.width / rect.width);
-            }}, {passive:true});
-            canvas.addEventListener('touchmove', (e)=>{{
+            }, {passive:true});
+            canvas.addEventListener('touchmove', (e)=>{
                 const rect = canvas.getBoundingClientRect();
                 pointerX = (e.touches[0].clientX - rect.left) * (canvas.width / rect.width);
-            }}, {passive:true});
+            }, {passive:true});
 
-            window.addEventListener('keydown', (e)=>{{
+            window.addEventListener('keydown', (e)=>{
                 if (e.key === 'ArrowLeft') keyboardVel = -6;
                 if (e.key === 'ArrowRight') keyboardVel = 6;
-            }});
-            window.addEventListener('keyup', (e)=>{{
+            });
+            window.addEventListener('keyup', (e)=>{
                 if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') keyboardVel = 0;
-            }});
+            });
 
             // start
             lastTime = performance.now();
             requestAnimationFrame(loop);
 
-            // expose
-            window.__tc_get_result = function(){{ try{{return localStorage.getItem('tc_result');}}catch(e){{return null;}} }};
-            window.__tc_clear_result = function(){{ try{{localStorage.removeItem('tc_result');}}catch(e){{}} }};
-        }})();
+            window.__tc_get_result = function(){ try{return localStorage.getItem('tc_result');}catch(e){return null;} };
+            window.__tc_clear_result = function(){ try{localStorage.removeItem('tc_result');}catch(e){} };
+        })();
         </script>
         """
 
-        html(game_html, height=860)
+        # inject the selected cup values safely (avoid f-string braces issue)
+        game_html = game_html.replace("{CUP_COLOR}", cup_color).replace("{CUP_SHAPE}", cup_shape)
+
+        # render the html
+        st_html(game_html, height=860)
 
         # Controls below the game for Claim / Retry / Get Motivation / Retrieve Result
         st.markdown("")  # spacing
@@ -1388,22 +1370,15 @@ elif st.session_state.page == "thirsty_cup":
             st.info("Play the round. When the round ends, click 'Set Result' inside the game overlay (or it will be stored automatically). Then click 'Retrieve Game Result' below to register the result with the server.")
         c1, c2, c3, c4 = st.columns([1,1,1,1])
         with c1:
-            if st.button("Retrieve Game Result"):
-                # Try to get result by rendering a tiny HTML that returns the localStorage value
-                # Best-effort approach: the JS in the iframe stores localStorage.tc_result.
-                # We now render a small HTML that attempts to read that same key and return it via a custom message using postMessage.
+            if st.button("Retrieve Game Result", key="retrieve_game_result"):
+                # Attempt to retrieve the result from localStorage (best-effort)
                 bridge_html = r"""
                 <script>
                 (function(){
                     try {
-                        // Try to access the iframe's localStorage via this component's context (may not be the same origin).
-                        // As a fallback, just look for the value in window.parent if available.
                         var res = null;
                         try { res = window.localStorage.getItem('tc_result'); } catch(e) { res = null; }
-                        // send a DOM-visible signal by setting document.title (some Streamlit setups pick this up)
-                        // But instead we will write the value into a hidden element so Streamlit can read it after rerun.
                         if(res) {
-                            // create a visible alert and also set an input value element
                             document.body.innerHTML = "<div id='bridge_result'>"+res+"</div>";
                         } else {
                             document.body.innerHTML = "<div id='bridge_result'>__NONE__</div>";
@@ -1414,33 +1389,23 @@ elif st.session_state.page == "thirsty_cup":
                 })();
                 </script>
                 """
-                # render bridge - this will NOT directly return the value to python in all environments,
-                # but it helps in many Streamlit deployments. We'll then attempt a simple fallback check.
                 st.components.v1.html(bridge_html, height=80)
-                # Try to read via window.__tc_get_result using another small HTML that calls parent function if available
+                # small pause to allow the snippet to run in the browser (best-effort)
                 try:
-                    # The safest fallback: ask user to press "Confirm Win" if they actually saw win overlay.
-                    # We'll also check st.session_state.thirsty_result again after a short pause.
-                    time.sleep(0.3)
+                    time.sleep(0.25)
                 except Exception:
                     pass
-
-                # Attempt to read previous value from session (if any)
-                # IMPORTANT: Real cross-iframe retrieval is environment-dependent. We'll use a conservative approach:
-                # If user has previously set a result on the overlay, the overlay code saved it to localStorage,
-                # but we cannot always read it from Python. So we ask the user to confirm.
                 st.info("Attempted to retrieve the result from the game. If your browser allowed it, the result will be registered. Otherwise, please press 'I Won' or 'I Lost' to register the result honestly.")
-                # Provide two explicit acceptance buttons for reliability
         with c2:
-            if st.button("I Won (Register Win)"):
+            if st.button("I Won (Register Win)", key="i_won_btn"):
                 st.session_state.thirsty_result = "win"
                 st.success("Registered: win")
         with c3:
-            if st.button("I Lost (Register Loss)"):
+            if st.button("I Lost (Register Loss)", key="i_lost_btn"):
                 st.session_state.thirsty_result = "lose"
                 st.info("Registered: lose")
         with c4:
-            if st.button("Retry"):
+            if st.button("Retry", key="tc_retry_btn"):
                 st.session_state.thirsty_playing = False
                 st.session_state.thirsty_result = None
                 st.session_state.thirsty_claimed = False
@@ -1448,7 +1413,7 @@ elif st.session_state.page == "thirsty_cup":
 
         # Claim button: only award coin if registered result == win
         st.markdown("")  # spacing
-        if st.button("Claim Coin (if you won)"):
+        if st.button("Claim Coin (if you won)", key="claim_coin_btn"):
             # Only allow claiming if we have a recorded win
             if st.session_state.thirsty_result == "win":
                 if not st.session_state.thirsty_claimed:
@@ -2277,6 +2242,7 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
 
