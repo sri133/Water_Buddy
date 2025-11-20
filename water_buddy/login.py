@@ -746,7 +746,7 @@ elif st.session_state.page == "settings":
     name = st.text_input("Name", value=saved.get("Name", username), key="settings_name")
     age = st.text_input("Age", value=saved.get("Age", ""), key="settings_age")
     country = st.selectbox("Country", countries, index=countries.index(saved.get("Country", "India")) if saved.get("Country") else countries.index("India"), key="settings_country")
-    
+    language = st.text_input("Language", value=saved.get("Language", ""), key="settings_language")
     
     st.write("---")
     
