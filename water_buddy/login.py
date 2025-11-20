@@ -1554,6 +1554,15 @@ elif st.session_state.page == "home":
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_home"):
         reset_page_inputs_session()
+        # --- GAME BUTTON AT BOTTOM OF HOME ---
+st.markdown("<br><br>", unsafe_allow_html=True)
+
+col1, col2, col3 = st.columns([1,2,1])
+with col2:
+    if st.button("🎮 Play Thirsty Cup", use_container_width=True):
+        st.session_state.page = "thirsty_cup_game"
+        st.rerun()
+
             # --------------------------------------------------
     # COLOR PICKER AT BOTTOM OF PAGE
     # --------------------------------------------------
@@ -2050,6 +2059,7 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
 
 
