@@ -910,7 +910,8 @@ elif st.session_state.page == "water_profile":
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_water_profile"):
         reset_page_inputs_session()
-        # -------------------------------
+
+# -------------------------------
 # THIRSTY CUP - Full Screen Game Page
 # -------------------------------
 elif st.session_state.page == "thirsty_cup":
@@ -1307,13 +1308,11 @@ elif st.session_state.page == "thirsty_cup":
         if st.button("🔥 Daily Streak"):
             go_to_page("daily_streak")
 
-
-
 # -------------------------------
 # HOME PAGE (persistent bottle + auto-reset at midnight)
 # -------------------------------
 elif st.session_state.page == "home":
-        # APPLY BACKGROUND
+    # APPLY BACKGROUND
     set_background()
     
     if not st.session_state.logged_in:
@@ -1554,16 +1553,16 @@ elif st.session_state.page == "home":
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_home"):
         reset_page_inputs_session()
-        # --- GAME BUTTON AT BOTTOM OF HOME ---
-st.markdown("<br><br>", unsafe_allow_html=True)
+    # --- GAME BUTTON AT BOTTOM OF HOME ---
+    st.markdown("<br><br>", unsafe_allow_html=True)
 
-col1, col2, col3 = st.columns([1,2,1])
-with col2:
-    if st.button("🎮 Play Thirsty Cup", use_container_width=True):
-        st.session_state.page = "thirsty_cup_game"
-        st.rerun()
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        if st.button("🎮 Play Thirsty Cup", use_container_width=True):
+            st.session_state.page = "thirsty_cup"  # fixed to existing page
+            st.rerun()
 
-            # --------------------------------------------------
+    # --------------------------------------------------
     # COLOR PICKER AT BOTTOM OF PAGE
     # --------------------------------------------------
     st.markdown("---")  # divider line
@@ -1583,7 +1582,7 @@ with col2:
         )
         st.session_state.background_color = new_color
         st.success("Background color updated!")
-    
+
 # -------------------------------
 # QUIZ PAGE
 # -------------------------------
@@ -2059,22 +2058,3 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
