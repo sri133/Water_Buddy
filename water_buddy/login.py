@@ -1674,7 +1674,7 @@ elif st.session_state.page == "quiz":
                 }
                 save_user_data(user_data)
 
-                st.experimental_rerun()
+                st.rerun()
 
         # --- SHOW RESULTS ---
         else:
@@ -2102,4 +2102,5 @@ elif st.session_state.page == "daily_streak":
 
 # conn remains open for lifetime
 # conn.close()  # if needed
+
 
