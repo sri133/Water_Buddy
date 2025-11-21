@@ -1908,33 +1908,22 @@ elif st.session_state.page == "report":
     # -------------------------------
     # Matplotlib Circular Daily Progress
     # -------------------------------
-    import matplotlib.pyplot as plt
-    import numpy as np
+        fig, ax = plt.subplots(figsize=(4,4))
+    ax.axis('equal')  # Keep circle round
 
-    # Compute progress as fraction
-    progress = today_pct / 100  # 0 to 1
+    # Draw background ring
+    ax.pie([100], radius=1, colors=["#E0E0E0"], startangle=90, counterclock=False,
+           wedgeprops=dict(width=0.15, edgecolor='white'))
 
-    fig, ax = plt.subplots(figsize=(3.5,3.5), subplot_kw={'projection':'polar'})
-    ax.set_theta_offset(np.pi/2)  # Start from top
-    ax.set_theta_direction(-1)
-
-    # Hide default polar labels
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.spines['polar'].set_visible(False)
-
-    # Draw background circle (light grey)
-    theta_bg = np.linspace(0, 2*np.pi, 100)
-    r_bg = np.ones_like(theta_bg)
-    ax.plot(theta_bg, r_bg, color="#E0E0E0", linewidth=15, solid_capstyle='round')
-
-    # Draw progress circle
-    theta_progress = np.linspace(0, 2*np.pi*progress, 100)
-    r_progress = np.ones_like(theta_progress)
-    ax.plot(theta_progress, r_progress, color="#1A73E8", linewidth=15, solid_capstyle='round')
+    # Draw progress portion
+    ax.pie([today_pct, 100-today_pct], radius=1, colors=["#1A73E8", "none"], startangle=90,
+           counterclock=False, wedgeprops=dict(width=0.15, edgecolor='white'))
 
     # Display percentage text in center
-    ax.text(0, 0, f"{today_pct}%", ha='center', va='center', fontsize=18, fontweight='bold', color="#1A73E8")
+    ax.text(0, 0, f"{today_pct}%", ha='center', va='center', fontsize=20, fontweight='bold', color="#1A73E8")
+
+    # Title above the ring
+    plt.text(0, 1.2, "Daily Water Intake Completed", ha='center', fontsize=14, fontweight='bold', color="#333")
 
     plt.tight_layout()
     st.pyplot(fig)
@@ -2105,6 +2094,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
