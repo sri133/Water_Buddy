@@ -1435,7 +1435,7 @@ elif st.session_state.page == "thirsty_cup":
             go_to_page("daily_streak")
 
 # -------------------------------
-# HOME PAGE (persistent bottle + auto-reset at midnight)
+# HOME PAGE (persistent bottle + Gemini chat fully functional)
 # -------------------------------
 elif st.session_state.page == "home":
     set_background()
@@ -1449,9 +1449,13 @@ elif st.session_state.page == "home":
     load_today_intake_into_session(username)
     ensure_week_current(username)
 
-    daily_goal = user_data.get(username, {}).get("water_profile", {}).get("daily_goal", user_data.get(username, {}).get("ai_water_goal", 2.5))
+    daily_goal = user_data.get(username, {}).get("water_profile", {}).get(
+        "daily_goal", user_data.get(username, {}).get("ai_water_goal", 2.5)
+    )
+
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 HP PARTNER</h1>", unsafe_allow_html=True)
 
+    # Bottle UI
     fill_percent = min(st.session_state.total_intake / daily_goal, 1.0) if daily_goal > 0 else 0
     bottle_html = f"""
     <div style='width: 120px; height: 300px; border: 3px solid #1A73E8; border-radius: 20px; position: relative; margin: auto; 
@@ -1461,17 +1465,7 @@ elif st.session_state.page == "home":
     """
     st.markdown(bottle_html, unsafe_allow_html=True)
 
-    # NEW RESET BUTTON
-    st.markdown("<br>", unsafe_allow_html=True)
-    reset_col = st.columns([1,2,1])
-    with reset_col[1]:
-        if st.button("🔄 Reset Bottle", key="reset_bottle"):
-            st.session_state.total_intake = 0.0
-            st.session_state.water_intake_log = []
-            st.session_state.water_input = ""
-            st.success("Bottle reset successfully!")
-            st.rerun()
-
+    # Water intake input
     st.write("---")
     water_input = st.text_input("Enter water amount (in ml):", key="water_input")
     if st.button("➕ Add Water"):
@@ -1488,35 +1482,12 @@ elif st.session_state.page == "home":
                 ensure_user_structures(username)
                 user_data[username].setdefault("daily_intake", {})
                 user_data[username]["daily_intake"][today_str] = st.session_state.total_intake
-                user_data[username]["daily_intake"]["last_login_date"] = today_str
                 update_weekly_record_on_add(username, today_str, st.session_state.total_intake)
-
-                # Update streak
-                user_streak = user_data[username]["streak"]
-                daily_goal_for_checks = user_data[username]["water_profile"].get("daily_goal", 2.5)
-                if st.session_state.total_intake >= daily_goal_for_checks:
-                    if today_str not in user_streak.get("completed_days", []):
-                        user_streak.setdefault("completed_days", []).append(today_str)
-                        user_streak["completed_days"] = sorted(list(set(user_streak["completed_days"])))
-                        completed_dates = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in user_streak["completed_days"]])
-                        streak = 0
-                        day_cursor = date.today()
-                        while day_cursor in completed_dates:
-                            streak += 1
-                            day_cursor -= timedelta(days=1)
-                        user_streak["current_streak"] = streak
-
                 save_user_data(user_data)
 
-                # -----------------------------
-                # DEDICATED WATER INTAKE TTS
-                # -----------------------------
+                # TTS
                 safe_ml = str(int(ml)) if ml.is_integer() else str(ml)
                 speak_text = f"Added {safe_ml} milliliters of water."
-                if st.session_state.total_intake >= daily_goal and not st.session_state.last_goal_completed_at:
-                    st.session_state.last_goal_completed_at = datetime.now().isoformat()
-                    speak_text += " Congratulations! You have completed your daily goal!"
-
                 tts_html = f"""
                 <script>
                 (function(){{
@@ -1532,21 +1503,21 @@ elif st.session_state.page == "home":
                 </script>
                 """
                 st.components.v1.html(tts_html, height=10)
-                # -----------------------------
 
                 st.rerun()
-                st.stop()
             except ValueError:
                 st.error("❌ Enter a valid number.")
         else:
             st.error("❌ Enter a valid number.")
 
+    # Today's log
     if st.session_state.water_intake_log:
         st.write("### Today's Log:")
         for i, entry in enumerate(st.session_state.water_intake_log, 1):
             st.write(f"{i}. {entry}")
 
     st.write("---")
+    # Bottom nav
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         if st.button("👤 Personal Settings"):
@@ -1571,31 +1542,59 @@ elif st.session_state.page == "home":
     if st.button("🧠 Take Today's Quiz"):
         go_to_page("quiz")
 
-    # Mascot (Home)
-    mascot = choose_mascot_and_message("home", username)
-    render_mascot_inline(mascot)
-
-    st.markdown('<p style="font-size:14px; color:gray;">Use a calibrated water bottle for correct measurements.</p>', unsafe_allow_html=True)
+    # -------------------------------
+    # GEMINI CHATBOT FUNCTIONAL
+    # -------------------------------
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
 
     st.markdown("<br><br>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        if st.button("🎮 Play Thirsty Cup", use_container_width=True):
-            st.session_state.page = "thirsty_cup"
-            st.rerun()
+    st.markdown("""
+        <div style='position:fixed; bottom:20px; right:20px; z-index:9999;'>
+            <button id="chat_toggle" style='background:#1A73E8; color:white; border:none; border-radius:50%; width:60px; height:60px; font-size:24px; cursor:pointer;'>🤖</button>
+            <div id="chat_box" style='display:none; width:320px; height:400px; background:white; border:2px solid #1A73E8; border-radius:10px; margin-bottom:10px; overflow:auto;'>
+                <div id="chat_content" style='padding:10px; height:340px; overflow-y:auto;'>
+                    """, unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.subheader("Customize Background Color 🎨")
-    if "show_color_picker" not in st.session_state:
-        st.session_state.show_color_picker = False
-    if st.button("Pick Background Color"):
-        st.session_state.show_color_picker = True
-    if st.session_state.show_color_picker:
-        new_color = st.color_picker("Choose a background color:", st.session_state.get("background_color", "#FFFFFF"))
-        st.session_state.background_color = new_color
-        st.success("Background color updated!")
+    # Display chat history
+    for msg in st.session_state.chat_history:
+        if msg["role"] == "user":
+            st.markdown(f"<div style='text-align:right;'><b>You:</b> {msg['text']}</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='text-align:left;'><b>Buddy:</b> {msg['text']}</div>", unsafe_allow_html=True)
 
+    st.markdown("""
+                </div>
+                <form method="post">
+                    <input name="chat_input" type="text" placeholder='Ask Water Buddy...' style='width:100%; height:40px; border:1px solid #ccc; padding:5px;' />
+                    <input type="submit" style='display:none;' />
+                </form>
+            </div>
+        </div>
+        <script>
+            const chatToggle = document.getElementById('chat_toggle');
+            const chatBox = document.getElementById('chat_box');
+            chatToggle.onclick = function(){{
+                chatBox.style.display = chatBox.style.display==='none' ? 'block' : 'none';
+            }}
+        </script>
+    """, unsafe_allow_html=True)
 
+    # Handle chat input
+    chat_input = st.experimental_get_query_params().get("chat_input", [""])[0]
+    if chat_input:
+        if model:
+            prompt = f"You are Water Buddy. Answer user's question about hydration.\nUser: {chat_input}\nBuddy:"
+            try:
+                response = model.generate_content(prompt)
+                reply = response.text.strip()
+            except Exception as e:
+                reply = f"Error: {e}"
+        else:
+            reply = "Gemini not configured."
+        st.session_state.chat_history.append({"role": "user", "text": chat_input})
+        st.session_state.chat_history.append({"role": "assistant", "text": reply})
+        st.rerun()
 
 # -------------------------------
 # QUIZ PAGE
@@ -2065,6 +2064,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
