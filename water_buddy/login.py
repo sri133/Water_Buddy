@@ -1594,7 +1594,7 @@ elif st.session_state.page == "home":
             reply = "Gemini not configured."
         st.session_state.chat_history.append({"role": "user", "text": chat_input})
         st.session_state.chat_history.append({"role": "assistant", "text": reply})
-        st.rerun()
+        st.exprimental_rerun()
 
 # -------------------------------
 # QUIZ PAGE
@@ -2064,6 +2064,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
