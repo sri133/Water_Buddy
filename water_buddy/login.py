@@ -1557,13 +1557,13 @@ elif st.session_state.page == "quiz":
             go_to_page("daily_streak")
 
 # -------------------------------
-# REPORT PAGE (Matplotlib Circular Daily Goal)
+# REPORT PAGE (Matplotlib Circular Daily Goal + Persistent Data)
 # -------------------------------
 elif st.session_state.page == "report":
     if not st.session_state.logged_in:
         go_to_page("login")
 
-    set_background()  # <-- keep background consistent
+    set_background()  # keep background consistent
     username = st.session_state.username
 
     st.markdown(
@@ -1574,6 +1574,24 @@ elif st.session_state.page == "report":
 
     ensure_user_structures(username)
     ensure_week_current(username)
+
+    # -------------------------------
+    # Save today's intake to weekly data (persistent)
+    # -------------------------------
+    today = date.today()
+    today_str = today.isoformat()
+    daily_goal = user_data[username]["water_profile"].get(
+        "daily_goal", user_data[username].get("ai_water_goal", 2.5)
+    )
+
+    weekly = user_data[username].setdefault("weekly_data", {"week_start": None, "days": {}})
+    # Initialize week start if missing
+    if not weekly.get("week_start"):
+        week_start_dt = current_week_start()
+        weekly["week_start"] = week_start_dt.strftime("%Y-%m-%d")
+    # Save today's intake to weekly data
+    weekly["days"][today_str] = st.session_state.total_intake
+    save_user_data(user_data)  # persist to disk
 
     # -------------------------------
     # Compute today's percentage completion
@@ -1587,23 +1605,15 @@ elif st.session_state.page == "report":
         except Exception:
             continue
 
-    today = date.today()
-    daily_goal = user_data[username]["water_profile"].get(
-        "daily_goal", user_data[username].get("ai_water_goal", 2.5)
-    )
-
     if today in completed_dates:
         today_pct = 100
     else:
-        if st.session_state.total_intake:
-            today_pct = min(round(st.session_state.total_intake / daily_goal * 100), 100)
-        else:
-            today_pct = 0
+        today_pct = min(round(st.session_state.total_intake / daily_goal * 100), 100) if st.session_state.total_intake else 0
 
     st.markdown("### Today's Progress")
 
     # -------------------------------
-    # Plotly Gauge for Today's Hydration (unchanged)
+    # Plotly Gauge for Today's Hydration
     # -------------------------------
     fig_daily = go.Figure(
         go.Indicator(
@@ -1647,14 +1657,7 @@ elif st.session_state.page == "report":
     st.write("---")
     st.markdown("### Weekly Progress (Mon → Sun) — Current Week")
 
-    weekly = user_data[username].get("weekly_data", {"week_start": None, "days": {}})
-    week_start_str = weekly.get("week_start")
-    if not week_start_str:
-        week_start_dt = current_week_start()
-        week_start_str = week_start_dt.strftime("%Y-%m-%d")
-        weekly["week_start"] = week_start_str
-        save_user_data(user_data)
-
+    week_start_str = weekly["week_start"]
     week_start_dt = datetime.strptime(week_start_str, "%Y-%m-%d").date()
     week_days = [week_start_dt + timedelta(days=i) for i in range(7)]
     labels = [d.strftime("%a\n%d %b") for d in week_days]
@@ -1665,9 +1668,7 @@ elif st.session_state.page == "report":
     status_list = []
 
     for d_str, d in zip(week_days_str, week_days):
-        liters = weekly.get("days", {}).get(d_str)
-        if liters is None:
-            liters = st.session_state.total_intake if d == today else 0.0
+        liters = weekly["days"].get(d_str, 0.0)
         liters_list.append(liters)
 
         pct = min(round((liters / daily_goal) * 100), 100) if daily_goal > 0 else 0
@@ -1707,7 +1708,7 @@ elif st.session_state.page == "report":
     })
 
     # -------------------------------
-    # Plotly Weekly Bar Chart (unchanged)
+    # Plotly Weekly Bar Chart
     # -------------------------------
     fig_week = go.Figure()
     fig_week.add_trace(
@@ -1756,7 +1757,7 @@ elif st.session_state.page == "report":
     ax.text(0, 0, f"{today_pct}%", ha='center', va='center', fontsize=20, fontweight='bold', color="#1A73E8")
 
     # Title above the ring
-    plt.text(0, 1.2, "Daily Water Intake in Percentage(Cirular graph)", ha='center', fontsize=13, fontweight='bold', color="#333")
+    plt.text(0, 1.2, "Daily Water Intake in Percentage(Circular graph)", ha='center', fontsize=13, fontweight='bold', color="#333")
 
     plt.tight_layout()
     st.pyplot(fig)
@@ -1764,10 +1765,6 @@ elif st.session_state.page == "report":
     # -------------------------------
     # Footer buttons and navigation
     # -------------------------------
-    achieved_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "achieved")
-    almost_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "almost")
-    missed_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "missed")
-
     st.write("---")
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
@@ -1784,7 +1781,6 @@ elif st.session_state.page == "report":
     with col5:
         if st.button("🔥 Daily Streak"):
             go_to_page("daily_streak")
-
             
 # -------------------------------
 # DAILY STREAK PAGE (with medals)
@@ -1931,6 +1927,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
