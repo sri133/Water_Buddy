@@ -20,6 +20,28 @@ import requests
 import pytz
 from pathlib import Path
 import time
+from gtts import gTTS
+import base64
+
+def play_tts(text, lang="en"):
+    tts = gTTS(text=text, lang=lang)
+    tts.save("tts_output.mp3")
+    
+    audio_file = open("tts_output.mp3", "rb").read()
+    audio_base64 = base64.b64encode(audio_file).decode()
+
+    # JS autoplay hack for Streamlit
+    autoplay_html = f"""
+        <audio id="tts_audio" autoplay>
+            <source src="data:audio/mp3;base64,{audio_base64}" type="audio/mp3">
+        </audio>
+        <script>
+            var audio = document.getElementById("tts_audio");
+            audio.play();
+        </script>
+    """
+
+    st.markdown(autoplay_html, unsafe_allow_html=True)
 
 # --- helper to set CSS background
 def set_background():
@@ -540,7 +562,54 @@ def generate_quiz_fallback():
             "correct_index": 1,
             "explanation": "About 60% of an adult human's body is water, though this varies with age, sex, and body composition."
         },
-        # ... (the rest of your fallback ten questions)
+        {
+            "q": "Which process returns water to the atmosphere from plants?",
+            "options": ["Condensation", "Precipitation", "Transpiration", "Infiltration"],
+            "correct_index": 2,
+            "explanation": "Transpiration is the process where plants release water vapor to the atmosphere from their leaves."
+        },
+        {
+            "q": "Which is the primary source of fresh water for most cities?",
+            "options": ["Seawater", "Groundwater and rivers/lakes", "Glaciers only", "Rainwater only"],
+            "correct_index": 1,
+            "explanation": "Most cities rely on surface water (rivers/lakes) and groundwater; sources vary by region."
+        },
+        {
+            "q": "Who invented the steam engine that helped early water pumping in the 1700s?",
+            "options": ["James Watt", "Isaac Newton", "Thomas Edison", "Nikola Tesla"],
+            "correct_index": 0,
+            "explanation": "James Watt improved steam engine designs that were important for pumping and industrial uses."
+        },
+        {
+            "q": "What is a common method to make seawater drinkable?",
+            "options": ["Filtration only", "Chlorination", "Desalination", "Sedimentation"],
+            "correct_index": 2,
+            "explanation": "Desalination removes salts and minerals from seawater, making it suitable to drink."
+        },
+        {
+            "q": "Which documentary theme would most likely be featured on a water-focused film?",
+            "options": ["Space travel", "Water scarcity and conservation", "Mountain climbing", "Astrophysics"],
+            "correct_index": 1,
+            "explanation": "Water-focused documentaries often highlight scarcity, conservation, pollution, and solutions."
+        },
+        {
+            "q": "What is the main reason to avoid drinking large volumes right before bed?",
+            "options": ["It causes headaches", "It can disrupt sleep with bathroom trips", "It freezes in the body", "It removes vitamins"],
+            "correct_index": 1,
+            "explanation": "Drinking a lot before sleep may lead to waking up at night to use the bathroom, disrupting sleep."
+        },
+        {
+            "q": "Which gas dissolves in water and is essential for plant photosynthesis?",
+            "options": ["Oxygen", "Nitrogen", "Carbon dioxide", "Helium"],
+            "correct_index": 2,
+            "explanation": "Carbon dioxide dissolves in water and is used by aquatic plants in photosynthesis."
+        },
+        {
+            "q": "Which ancient civilization developed advanced irrigation systems?",
+            "options": ["Incas", "Indus Valley, Mesopotamia, and Egyptians", "Victorians", "Aztecs only"],
+            "correct_index": 1,
+            "explanation": "Civilizations like Mesopotamia, the Indus Valley, and ancient Egypt developed early irrigation to support agriculture."
+        },
         {
             "q": "What is one simple way households can conserve water daily?",
             "options": ["Run taps while brushing teeth", "Take longer showers", "Repair leaks and use efficient fixtures", "Water the lawn midday"],
@@ -1572,3 +1641,4 @@ elif st.session_state.page == "quiz":
 # -------------------------------
 # (The rest of the code for report and streak already included earlier in your parts.)
 # End of file
+
