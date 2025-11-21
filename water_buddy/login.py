@@ -818,8 +818,8 @@ elif st.session_state.page == "water_profile":
         save_user_data(user_data)
         st.success("✅ Water profile saved successfully!")
         go_to_page("home")
-
-    if st.button("🔄 Reset Page", key="reset_water_profile"):
+        
+        if st.button("🔄 Reset Page", key="reset_water_profile"):
     # 1. Reset saved water profile in DB
     user_data[username]["water_profile"] = {
         "daily_goal": 0.0,
@@ -833,6 +833,7 @@ elif st.session_state.page == "water_profile":
 
     st.success("Water intake reset!")
     st.rerun()
+
 
 
 
@@ -2014,6 +2015,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
