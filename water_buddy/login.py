@@ -1541,6 +1541,37 @@ elif st.session_state.page == "home":
 
     if st.button("🧠 Take Today's Quiz"):
         go_to_page("quiz")
+          # -----------------------------
+    # MASCOT INLINE
+    # -----------------------------
+    mascot = choose_mascot_and_message("home", username)
+    render_mascot_inline(mascot)
+
+    st.markdown('<p style="font-size:14px; color:gray;">Use a calibrated water bottle for correct measurements.</p>', unsafe_allow_html=True)
+
+    # -----------------------------
+    # THIRSTY CUP GAME BUTTON
+    # -----------------------------
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        if st.button("🎮 Play Thirsty Cup", use_container_width=True):
+            st.session_state.page = "thirsty_cup"
+            st.rerun()
+
+    # -----------------------------
+    # BACKGROUND COLOR PICKER
+    # -----------------------------
+    st.markdown("---")
+    st.subheader("Customize Background Color 🎨")
+    if "show_color_picker" not in st.session_state:
+        st.session_state.show_color_picker = False
+    if st.button("Pick Background Color"):
+        st.session_state.show_color_picker = True
+    if st.session_state.show_color_picker:
+        new_color = st.color_picker("Choose a background color:", st.session_state.get("background_color", "#FFFFFF"))
+        st.session_state.background_color = new_color
+        st.success("Background color updated!")
 
    # -------------------------------
 # GEMINI CHATBOT FUNCTIONAL
@@ -2054,6 +2085,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
