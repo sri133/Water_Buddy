@@ -1929,7 +1929,7 @@ elif st.session_state.page == "report":
     ax.text(0, 0, f"{today_pct}%", ha='center', va='center', fontsize=20, fontweight='bold', color="#1A73E8")
 
     # Title above the ring
-    plt.text(0, 1.2, "Daily Water Intake Completed", ha='center', fontsize=14, fontweight='bold', color="#333")
+    plt.text(0, 1.2, "Daily Water Intake in Percentage(Cirular graph)", ha='center', fontsize=14, fontweight='bold', color="#333")
 
     plt.tight_layout()
     st.pyplot(fig)
@@ -2104,6 +2104,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
