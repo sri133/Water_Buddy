@@ -579,56 +579,6 @@ def grade_quiz_and_explain(quiz, answers):
         })
     return results, score
 
-# -------------------------------
-# Reset helper (safe)
-# --------------------------------
-
-def reset_page_inputs_session():
-
-    preserve = {"logged_in", "username", "page"}
-
-    keys_to_delete = [
-        k for k in list(st.session_state.keys())
-        if k not in preserve
-    ]
-
-    for k in keys_to_delete:
-        try:
-            del st.session_state[k]
-        except:
-            pass
-
-    # Explicitly remove all widget keys for Settings
-    for k in [
-        "settings_name", "settings_age", "settings_country",
-        "settings_language", "settings_height_unit",
-        "settings_height", "settings_weight_unit",
-        "settings_weight", "settings_health_condition",
-        "settings_health_problems"
-    ]:
-        st.session_state.pop(k, None)
-
-    # Explicitly remove widget keys for Water Intake
-    for k in [
-        "water_profile_daily_goal", "water_profile_frequency"
-    ]:
-        st.session_state.pop(k, None)
-
-    # Reset UI session variables
-    st.session_state.total_intake = 0.0
-    st.session_state.water_intake_log = []
-    st.session_state.chat_history = []
-    st.session_state.show_chatbot = False
-    st.session_state.quiz_answers = None
-    st.session_state.quiz_submitted = False
-    st.session_state.quiz_results = None
-    st.session_state.quiz_score = 0
-
-    # Force rerun next frame
-    st.session_state.just_reset = True
-
-    st.rerun()
-
 
 # -------------------------------
 # LOGIN PAGE
@@ -756,24 +706,6 @@ elif st.session_state.page == "settings":
         st.success(f"✅ Profile saved! Water Buddy suggests {user_data[username].get('ai_water_goal',2.5)} L/day 💧")
         go_to_page("water_profile")
 
-    # Reset button (bottom)
-st.markdown("<br>", unsafe_allow_html=True)
-if st.button("🔄 Reset Page", key="reset_settings"):
-    # 1. Clear saved profile in DB
-    user_data[username]["profile"] = {}
-    save_user_data(user_data)
-
-    # 2. Clear widget keys
-    for key in [
-        "settings_name", "settings_age", "settings_country", "settings_language",
-        "settings_height_unit", "settings_height", "settings_weight_unit",
-        "settings_weight", "settings_health_condition", "settings_health_problems"
-    ]:
-        st.session_state.pop(key, None)
-
-    st.success("Page reset!")
-    st.rerun()
-
 # -------------------------------
 # WATER INTAKE PAGE
 # -------------------------------
@@ -830,27 +762,6 @@ elif st.session_state.page == "water_profile":
 
         st.success("✅ Water profile saved successfully!")
         go_to_page("home")
-
-    # ------------------
-    # RESET BUTTON (FIXED)
-    # ------------------
-    if st.button("🔄 Reset Page", key="reset_water_profile"):
-
-        # 1. Reset database values
-        user_data[username]["water_profile"] = {
-            "daily_goal": 0.0,
-            "frequency": "30 minutes"
-        }
-        save_user_data(user_data)
-
-        # 2. Clear widget values
-        st.session_state["water_profile_daily_goal"] = 0.0
-        st.session_state["water_profile_frequency"] = "30 minutes"
-
-        # 3. Show message + refresh
-        st.success("🔄 Water intake page reset!")
-        st.session_state.just_reset = True
-        st.rerun()
 
 
 # -------------------------------
@@ -2031,6 +1942,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
