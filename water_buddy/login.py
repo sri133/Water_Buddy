@@ -270,7 +270,7 @@ if "mascot_tts_played_for" not in st.session_state:
 countries = [c.name for c in pycountry.countries]
 
 # -------------------------------
-# Mascot utilities & logic (modified to include tts flag for home messages)
+# Mascot utilities & logic (fixed)
 # -------------------------------
 GITHUB_ASSETS_BASE = "https://raw.githubusercontent.com/sri133/Water_Buddy/main/water_buddy/assets/"
 
@@ -350,14 +350,9 @@ def ask_gemini_for_message(context: str, fallback: str) -> str:
     return fallback
 
 def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, Any]]:
-    """
-    Returns dict like {"image": url_or_local_path, "message": "...", "id": "...", "tts": bool}
-    We set tts=True only for Home page branches when message used Gemini (so only home motivational lines speak).
-    """
     india_tz = pytz.timezone("Asia/Kolkata")
     now = datetime.now(india_tz)
     t = now.time()
-    temp_c = read_current_temperature_c()
 
     ensure_user_structures(username)
     wp = user_data.get(username, {}).get("water_profile", {})
@@ -367,7 +362,7 @@ def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, An
     except Exception:
         freq_minutes = 30
 
-    # Highest priority: post-daily-goal (5 minutes)
+    # Post-daily-goal (highest priority)
     last_completed_iso = st.session_state.get("last_goal_completed_at")
     if last_completed_iso:
         try:
@@ -383,106 +378,89 @@ def choose_mascot_and_message(page: str, username: str) -> Optional[Dict[str, An
     # Page-specific mascots
     if page == "login":
         img = build_image_url("image (1).png")
-        context = "Greeting message for a user opening the login page. Keep it friendly and short."
-        msg = ask_gemini_for_message(context, "Hi there! Welcome back to HP PARTNER — log in to track your hydration.")
+        msg = ask_gemini_for_message("Greeting message for login page.",
+                                     "Hi there! Welcome back to HP PARTNER — log in to track your hydration.")
         return {"image": img, "message": msg, "id": "login", "tts": False}
 
     if page == "daily_streak":
         img = build_image_url("image (2).png")
-        context = "Motivational message for the daily streak page. Give a short encouraging line and a tip. Update hourly."
-        msg = ask_gemini_for_message(context, "🔥 Keep going — every sip counts! Tip: set small, consistent reminders to stay hydrated.")
+        msg = ask_gemini_for_message("Motivational message for daily streak page.",
+                                     "🔥 Keep going — every sip counts! Tip: set small, consistent reminders to stay hydrated.")
         return {"image": img, "message": msg, "id": "daily_streak", "tts": False}
 
-    # SPECIAL HOME-TIME MASCOT: between 13:40 and 14:30 show image (7).png
+    # ---------------- Home Page Mascots ----------------
     if page == "home":
-        try:
-            if time_in_range(dtime(13, 40), dtime(14, 30), t):
-                candidates = [Path("assets") / "image (7).png", Path("assets") / "image(7).png"]
-                chosen = None
-                for p in candidates:
-                    if p.exists():
-                        chosen = str(p)
-                        break
-                if not chosen:
-                    chosen = build_image_url("image (7).png")
-                context = "Special midday mascot for hydration reminder."
-                msg = ask_gemini_for_message(context, "Midday reminder — have a refreshing sip of water!")
-                return {"image": chosen, "message": msg, "id": "special_midday", "tts": True}
-        except Exception:
-            pass
+        # Special Midday 13:40–14:30
+        if time_in_range(dtime(13,40), dtime(14,30), t):
+            candidates = [Path("assets") / "image(7).png", Path("assets") / "image (7).png"]
+            chosen = next((str(p) for p in candidates if p.exists()), build_image_url("image(7).png"))
+            msg = ask_gemini_for_message("Special midday mascot for hydration reminder.", 
+                                         "Midday reminder — have a refreshing sip of water!")
+            return {"image": chosen, "message": msg, "id": "special_midday", "tts": True}
 
-        # Night window
-        night_start = dtime(hour=21, minute=30)
-        night_end = dtime(hour=5, minute=0)
-        if time_in_range(night_start, night_end, t):
-            img = build_image_url("image (8).png")
-            context = "Night greeting and tip for winding down hydration (avoid heavy drinking close to sleep). Keep it short."
-            msg = ask_gemini_for_message(context, "🌙 It's late — sip lightly if needed and avoid heavy drinking right before sleep.")
-            return {"image": img, "message": msg, "id": "night", "tts": True}
+        # Meal windows: 08:00–09:00, 13:00–14:00, 20:30–21:30
+        if (time_in_range(dtime(8,0), dtime(9,0), t) or 
+            time_in_range(dtime(13,0), dtime(14,0), t) or 
+            time_in_range(dtime(20,30), dtime(21,30), t)):
+            candidates = [Path("assets") / "image(5).jpg", Path("assets") / "image (5).jpg"]
+            chosen = next((str(p) for p in candidates if p.exists()), build_image_url("image(5).jpg"))
+            msg = ask_gemini_for_message("Meal-time hydration tip.", 
+                                         "During meals, avoid drinking large amounts — small sips are fine.")
+            return {"image": chosen, "message": msg, "id": "meal", "tts": True}
 
-        # Morning
-        if time_in_range(dtime(5,0), dtime(9,0), t):
-            img = build_image_url("image (6).jpg")
-            context = "Morning greeting: energetic, short. Encourage starting the day with water."
-            msg = ask_gemini_for_message(context, "Good morning! A glass of water is a great way to start your day — you've got this! 💧")
-            return {"image": img, "message": msg, "id": "morning", "tts": True}
+        # Night: 21:30–05:00
+        if time_in_range(dtime(21,30), dtime(5,0), t):
+            candidates = [Path("assets") / "image(8).png", Path("assets") / "image (8).png"]
+            chosen = next((str(p) for p in candidates if p.exists()), build_image_url("image(8).png"))
+            msg = ask_gemini_for_message("Night hydration tip.", 
+                                         "🌙 It's late — sip lightly if needed and avoid heavy drinking right before sleep.")
+            return {"image": chosen, "message": msg, "id": "night", "tts": True}
 
-        # Meal windows
-        if time_in_range(dtime(8,0), dtime(9,0), t) or time_in_range(dtime(13,0), dtime(14,0), t) or time_in_range(dtime(20,30), dtime(21,30), t):
-            img = build_image_url("image (5).jpg")
-            context = "Meal-time tip about avoiding heavy drinking right before or after meals. Keep it short and practical."
-            msg = ask_gemini_for_message(context, "During meals, avoid drinking large amounts right before or after eating — small sips are fine.")
-            return {"image": img, "message": msg, "id": "meal", "tts": True}
+        # Morning: 05:00–08:00
+        if time_in_range(dtime(5,0), dtime(8,0), t):
+            candidates = [Path("assets") / "image 6).jpg", Path("assets") / "image(6).jpg"]
+            chosen = next((str(p) for p in candidates if p.exists()), build_image_url("image 6).jpg"))
+            msg = ask_gemini_for_message("Morning greeting.", 
+                                         "Good morning! Start your day with water — you've got this! 💧")
+            return {"image": chosen, "message": msg, "id": "morning", "tts": True}
 
         # Reminder window
         if is_within_reminder_window(freq_minutes, tolerance_minutes=5):
-            img = build_image_url("image (4).png")
-            context = f"Reminder / motivation message: remind the user to drink water now. Frequency: every {freq_minutes} minutes."
-            msg = ask_gemini_for_message(context, "⏰ Time for a sip! A quick drink will keep you on track for your daily goal.")
-            return {"image": img, "message": msg, "id": "reminder", "tts": True}
+            candidates = [Path("assets") / "image(4).png", Path("assets") / "image (4).png"]
+            chosen = next((str(p) for p in candidates if p.exists()), build_image_url("image(4).png"))
+            msg = ask_gemini_for_message(f"Time to drink water (every {freq_minutes} mins).", 
+                                         "⏰ Time for a sip! Keep on track for your daily goal.")
+            return {"image": chosen, "message": msg, "id": "reminder", "tts": True}
 
-        # Hot weather fallback
-        if temp_c is not None and temp_c >= 40.0:
-            for fname in ["image (7).png", "image (7).jpg", "image (7).jpeg"]:
-                img = build_image_url(fname)
-                context = f"Hot weather advice for {temp_c}°C — short tip to hydrate more and avoid heat stress."
-                msg = ask_gemini_for_message(context, f"It's hot outside ({temp_c}°C). Drink more frequently and avoid long sun exposure.")
-                return {"image": img, "message": msg, "id": "hot_weather", "tts": True}
+        # Default home fallback
+        candidates = [Path("assets") / "image (3).png", Path("assets") / "image(3).png"]
+        chosen = next((str(p) for p in candidates if p.exists()), build_image_url("image (3).png"))
+        msg = ask_gemini_for_message("Friendly greeting for home page.", 
+                                     "Hello! Keep up the good work — you're doing well with your hydration today.")
+        return {"image": chosen, "message": msg, "id": "home_fallback_full", "tts": True}
 
-        # Fallback home mascot (use Gemini for personalized fallback too)
-        img = build_image_url("image (3).png")
-        today_str = date.today().strftime("%Y-%m-%d")
-        today_intake = user_data.get(username, {}).get("daily_intake", {}).get(today_str, 0.0)
-        if today_intake < user_data.get(username, {}).get("water_profile", {}).get("daily_goal", 2.5) * 0.5:
-            context = "Friendly greeting and gentle reminder to drink a little water if the user is less than 50% to today's goal."
-            msg = ask_gemini_for_message(context, "Hi! A little sip now will keep you feeling fresh — you're doing great!")
-            return {"image": img, "message": msg, "id": "home_fallback", "tts": True}
-        else:
-            context = "Friendly greeting for the home page."
-            msg = ask_gemini_for_message(context, "Hello! Keep up the good work — you're doing well with your hydration today.")
-            return {"image": img, "message": msg, "id": "home_fallback_full", "tts": True}
-
-    # Report page: intentionally NO mascot to keep it clean
+    # Report page → no mascot
     if page == "report":
         return None
 
     # Default fallback (non-home)
     img = build_image_url("image (3).png")
-    msg = ask_gemini_for_message("Default greeting", "Hi! I'm Water Buddy — how can I help you stay hydrated today?")
+    msg = ask_gemini_for_message("Default greeting", 
+                                 "Hi! I'm Water Buddy — how can I help you stay hydrated today?")
     return {"image": img, "message": msg, "id": "default", "tts": False}
 
+
 def render_mascot_inline(mascot: Optional[Dict[str, Any]]):
-    """
-    Render the mascot inline in the page content.
-    If mascot['tts'] is True and it's a home-related mascot, we inject JS to speak the message
-    (but ensure it runs only once per page load to avoid repeated speech).
-    """
     if not mascot:
         return
     img = mascot.get("image")
     message = mascot.get("message", "")
     mid = mascot.get("id", "mascot")
     tts_flag = bool(mascot.get("tts", False))
+
+    # Initialize TTS tracker
+    if "mascot_tts_played_for" not in st.session_state:
+        st.session_state.mascot_tts_played_for = set()
 
     col_img, col_msg = st.columns([1, 4])
     with col_img:
@@ -515,8 +493,7 @@ def render_mascot_inline(mascot: Optional[Dict[str, Any]]):
             unsafe_allow_html=True
         )
 
-    # If this mascot is marked for TTS and we haven't played it in this session, speak it:
-    # Only play for home-related mascots (we set tts True only for home in chooser)
+    # Home-related TTS
     if tts_flag and mid not in st.session_state.mascot_tts_played_for:
         safe_text = message.replace('"', '\\"').replace("\n", " ")
         html = f"""
@@ -524,10 +501,9 @@ def render_mascot_inline(mascot: Optional[Dict[str, Any]]):
         (function(){{
             try {{
                 const utter = new SpeechSynthesisUtterance("{safe_text}");
-                // optional: set voice/rate/pitch if you'd like:
                 utter.rate = 1.0;
                 utter.pitch = 1.0;
-                window.speechSynthesis.cancel(); // stop any previous
+                window.speechSynthesis.cancel();
                 window.speechSynthesis.speak(utter);
             }} catch(e) {{
                 console.warn("TTS failed", e);
@@ -536,7 +512,6 @@ def render_mascot_inline(mascot: Optional[Dict[str, Any]]):
         </script>
         """
         st.components.v1.html(html, height=10)
-        # mark as played
         st.session_state.mascot_tts_played_for.add(mid)
 
 # -------------------------------
@@ -2104,6 +2079,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
