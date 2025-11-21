@@ -756,8 +756,23 @@ elif st.session_state.page == "settings":
         st.success(f"✅ Profile saved! Water Buddy suggests {user_data[username].get('ai_water_goal',2.5)} L/day 💧")
         go_to_page("water_profile")
 
-    if st.button("🔄 Reset Page", key="reset_settings"):
-        reset_page_inputs_session()
+    # Reset button (bottom)
+st.markdown("<br>", unsafe_allow_html=True)
+if st.button("🔄 Reset Page", key="reset_settings"):
+    # 1. Clear saved profile in DB
+    user_data[username]["profile"] = {}
+    save_user_data(user_data)
+
+    # 2. Clear widget keys
+    for key in [
+        "settings_name", "settings_age", "settings_country", "settings_language",
+        "settings_height_unit", "settings_height", "settings_weight_unit",
+        "settings_weight", "settings_health_condition", "settings_health_problems"
+    ]:
+        st.session_state.pop(key, None)
+
+    st.success("Page reset!")
+    st.rerun()
 
 # -------------------------------
 # WATER INTAKE PAGE
@@ -805,7 +820,20 @@ elif st.session_state.page == "water_profile":
         go_to_page("home")
 
     if st.button("🔄 Reset Page", key="reset_water_profile"):
-        reset_page_inputs_session()
+    # 1. Reset saved water profile in DB
+    user_data[username]["water_profile"] = {
+        "daily_goal": 0.0,
+        "frequency": "30 minutes"
+    }
+    save_user_data(user_data)
+
+    # 2. Clear widget keys
+    for key in ["water_profile_daily_goal", "water_profile_frequency"]:
+        st.session_state.pop(key, None)
+
+    st.success("Water intake reset!")
+    st.rerun()
+
 
 
 # -------------------------------
@@ -1986,6 +2014,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
