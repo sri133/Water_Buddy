@@ -1906,9 +1906,11 @@ elif st.session_state.page == "report":
     )
 
     # -------------------------------
-    # Matplotlib Circular Daily Progress
+    # Matplotlib Circular Daily Progress (Enhanced)
     # -------------------------------
-        fig, ax = plt.subplots(figsize=(4,4))
+    
+
+    fig, ax = plt.subplots(figsize=(4,4))
     ax.axis('equal')  # Keep circle round
 
     # Draw background ring
@@ -1948,6 +1950,7 @@ elif st.session_state.page == "report":
     with col5:
         if st.button("🔥 Daily Streak"):
             go_to_page("daily_streak")
+
             
 # -------------------------------
 # DAILY STREAK PAGE (with medals)
@@ -2094,6 +2097,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
