@@ -1783,22 +1783,44 @@ elif st.session_state.page == "report":
             go_to_page("daily_streak")
             
 # -------------------------------
-# DAILY STREAK PAGE (with medals)
+# DAILY STREAK PAGE (with medals + data saving)
 # -------------------------------
 elif st.session_state.page == "daily_streak":
     if not st.session_state.logged_in:
         go_to_page("login")
 
-    set_background()  # <-- add here
+    set_background()  # Keep consistent background
     username = st.session_state.username
     today = date.today()
     year, month = today.year, today.month
     days_in_month = calendar.monthrange(year, month)[1]
 
+    # Ensure user data exists
     ensure_user_structures(username)
-    streak_info = user_data[username].get(
-        "streak", {"completed_days": [], "current_streak": 0}
+
+    # ------------------- Update streak if daily goal achieved -------------------
+    daily_goal = user_data[username]["water_profile"].get(
+        "daily_goal", user_data[username].get("ai_water_goal", 2.5)
     )
+    # If today's intake >= goal and not already recorded
+    if st.session_state.total_intake >= daily_goal:
+        streak_info = user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
+        today_iso = today.isoformat()
+        if today_iso not in streak_info["completed_days"]:
+            streak_info["completed_days"].append(today_iso)
+            # Update current streak
+            sorted_days = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in streak_info["completed_days"]])
+            current_streak = 0
+            for d in reversed(sorted_days):
+                if (today - d).days == 0 or (today - d).days == current_streak:
+                    current_streak += 1
+                else:
+                    break
+            streak_info["current_streak"] = current_streak
+            save_user_data(user_data)
+
+    # Load streak info
+    streak_info = user_data[username].get("streak", {"completed_days": [], "current_streak": 0})
     completed_iso = streak_info.get("completed_days", [])
     current_streak = streak_info.get("current_streak", 0)
 
@@ -1898,10 +1920,6 @@ elif st.session_state.page == "daily_streak":
 
     st.write("---")
 
-    completed_dates_in_month = sorted([d for d in completed_dates if d.year == year and d.month == month])
-    completed_days_numbers = [d.day for d in completed_dates_in_month]
-    last_completed_day_num = max(completed_days_numbers) if completed_days_numbers else None
-
     st.markdown(
         f"<h2 style='text-align:center; color:#1A73E8;'>🔥 Daily Streak: {current_streak} Days</h2>",
         unsafe_allow_html=True
@@ -1923,10 +1941,11 @@ elif st.session_state.page == "daily_streak":
             go_to_page("report")
     with col5:
         st.info("You're on Daily Streak")
-
+        
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
