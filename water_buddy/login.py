@@ -1922,7 +1922,7 @@ elif st.session_state.page == "report":
            wedgeprops=dict(width=0.15, edgecolor='white'))
 
     # Draw progress portion based on today_pct
-    ax.pie([today_pct, 100-today_pct], radius=3, colors=["#1A73E8", "none"], startangle=90,
+    ax.pie([today_pct, 100-today_pct], radius=1, colors=["#1A73E8", "none"], startangle=90,
            counterclock=False, wedgeprops=dict(width=0.15, edgecolor='white'))
 
     # Display percentage text in center
@@ -2104,6 +2104,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
