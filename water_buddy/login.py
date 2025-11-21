@@ -1418,14 +1418,12 @@ elif st.session_state.page == "home":
     bottle_html = f"""
     <div style='width: 120px; height: 300px; border: 3px solid #1A73E8; border-radius: 20px; position: relative; margin: auto; 
     background: linear-gradient(to top, #1A73E8 {fill_percent*100}%, #E0E0E0 {fill_percent*100}%);'>
-        <div style='position: absolute; bottom: 5px; width: 100%; text-align: center; color: #fff; font-weight: bold; font-size: 18px;'>
-            {round(st.session_state.total_intake,2)}L / {daily_goal}L
-        </div>
+        <div style='position: absolute; bottom: 5px; width: 100%; text-align: center; color: #fff; font-weight: bold; font-size: 18px;'>{round(st.session_state.total_intake,2)}L / {daily_goal}L</div>
     </div>
     """
     st.markdown(bottle_html, unsafe_allow_html=True)
 
-    # NEW RESET BUTTON RIGHT BELOW THE BOTTLE
+    # NEW RESET BUTTON
     st.markdown("<br>", unsafe_allow_html=True)
     reset_col = st.columns([1,2,1])
     with reset_col[1]:
@@ -1448,12 +1446,14 @@ elif st.session_state.page == "home":
                 st.session_state.water_intake_log.append(f"{ml} ml")
                 st.success(f"✅ Added {ml} ml of water!")
 
+                # Update user data
                 ensure_user_structures(username)
                 user_data[username].setdefault("daily_intake", {})
                 user_data[username]["daily_intake"][today_str] = st.session_state.total_intake
                 user_data[username]["daily_intake"]["last_login_date"] = today_str
                 update_weekly_record_on_add(username, today_str, st.session_state.total_intake)
 
+                # Update streak
                 user_streak = user_data[username]["streak"]
                 daily_goal_for_checks = user_data[username]["water_profile"].get("daily_goal", 2.5)
                 if st.session_state.total_intake >= daily_goal_for_checks:
@@ -1471,7 +1471,7 @@ elif st.session_state.page == "home":
                 save_user_data(user_data)
 
                 # -----------------------------
-                # FIXED TTS: Water Intake Audio
+                # DEDICATED WATER INTAKE TTS
                 # -----------------------------
                 safe_ml = str(int(ml)) if ml.is_integer() else str(ml)
                 speak_text = f"Added {safe_ml} milliliters of water."
@@ -1479,21 +1479,21 @@ elif st.session_state.page == "home":
                     st.session_state.last_goal_completed_at = datetime.now().isoformat()
                     speak_text += " Congratulations! You have completed your daily goal!"
 
-                iframe_tts = f"""
-                <iframe srcdoc="
-                    <script>
-                        try {{
-                            const u = new SpeechSynthesisUtterance('{speak_text.replace("'", "\\'")}');
-                            u.rate = 1.0;
-                            u.pitch = 1.0;
-                            window.speechSynthesis.speak(u);
-                        }} catch(e) {{
-                            console.log('TTS error:', e);
-                        }}
-                    </script>
-                "></iframe>
+                tts_html = f"""
+                <script>
+                (function(){{
+                    try {{
+                        const utter = new SpeechSynthesisUtterance("{speak_text.replace('"','\\"')}");
+                        utter.rate = 1.0; utter.pitch = 1.0;
+                        window.speechSynthesis.cancel();
+                        window.speechSynthesis.speak(utter);
+                    }} catch(e) {{
+                        console.warn("TTS failed", e);
+                    }}
+                }})();
+                </script>
                 """
-                st.components.v1.html(iframe_tts, height=0)
+                st.components.v1.html(tts_html, height=10)
                 # -----------------------------
 
                 st.rerun()
@@ -1533,7 +1533,7 @@ elif st.session_state.page == "home":
     if st.button("🧠 Take Today's Quiz"):
         go_to_page("quiz")
 
-    # Mascot (Home): will speak if message is Gemini-generated (choose_mascot_and_message sets tts True)
+    # Mascot (Home)
     mascot = choose_mascot_and_message("home", username)
     render_mascot_inline(mascot)
 
@@ -1556,6 +1556,7 @@ elif st.session_state.page == "home":
         new_color = st.color_picker("Choose a background color:", st.session_state.get("background_color", "#FFFFFF"))
         st.session_state.background_color = new_color
         st.success("Background color updated!")
+
 
 
 # -------------------------------
@@ -1674,5 +1675,6 @@ elif st.session_state.page == "quiz":
 # -------------------------------
 # (The rest of the code for report and streak already included earlier in your parts.)
 # End of file
+
 
 
