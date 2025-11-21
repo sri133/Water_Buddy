@@ -22,6 +22,7 @@ from pathlib import Path
 import time
 from gtts import gTTS
 import base64
+import matplotlib
 
 # -----------------------------------------
 # ADD THIS FUNCTION RIGHT HERE
@@ -2006,6 +2007,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
