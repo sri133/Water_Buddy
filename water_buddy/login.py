@@ -1729,7 +1729,7 @@ elif st.session_state.page == "quiz":
             go_to_page("daily_streak")
 
 # -------------------------------
-# REPORT PAGE (with Matplotlib)
+# REPORT PAGE (Matplotlib Circular Daily Goal)
 # -------------------------------
 elif st.session_state.page == "report":
     if not st.session_state.logged_in:
@@ -1772,7 +1772,7 @@ elif st.session_state.page == "report":
     st.markdown("### Today's Progress")
 
     # -------------------------------
-    # Plotly Gauge for Today's Hydration
+    # Plotly Gauge for Today's Hydration (unchanged)
     # -------------------------------
     fig_daily = go.Figure(
         go.Indicator(
@@ -1875,7 +1875,7 @@ elif st.session_state.page == "report":
     })
 
     # -------------------------------
-    # Plotly Weekly Bar Chart
+    # Plotly Weekly Bar Chart (unchanged)
     # -------------------------------
     fig_week = go.Figure()
     fig_week.add_trace(
@@ -1905,18 +1905,37 @@ elif st.session_state.page == "report":
     )
 
     # -------------------------------
-    # Matplotlib Weekly Water Intake (Simple)
+    # Matplotlib Circular Daily Progress
     # -------------------------------
     import matplotlib.pyplot as plt
+    import numpy as np
 
-    fig, ax = plt.subplots(figsize=(6,3))
-    ax.bar(df_week['label'], df_week['liters'], color='skyblue')
-    ax.set_ylabel("Liters")
-    ax.set_title("Weekly Water Intake (Matplotlib)")
-    ax.set_ylim(0, max(max(df_week['liters']), daily_goal)+0.5)
-    plt.xticks(rotation=30, ha='right')
+    # Compute progress as fraction
+    progress = today_pct / 100  # 0 to 1
+
+    fig, ax = plt.subplots(figsize=(3.5,3.5), subplot_kw={'projection':'polar'})
+    ax.set_theta_offset(np.pi/2)  # Start from top
+    ax.set_theta_direction(-1)
+
+    # Hide default polar labels
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.spines['polar'].set_visible(False)
+
+    # Draw background circle (light grey)
+    theta_bg = np.linspace(0, 2*np.pi, 100)
+    r_bg = np.ones_like(theta_bg)
+    ax.plot(theta_bg, r_bg, color="#E0E0E0", linewidth=15, solid_capstyle='round')
+
+    # Draw progress circle
+    theta_progress = np.linspace(0, 2*np.pi*progress, 100)
+    r_progress = np.ones_like(theta_progress)
+    ax.plot(theta_progress, r_progress, color="#1A73E8", linewidth=15, solid_capstyle='round')
+
+    # Display percentage text in center
+    ax.text(0, 0, f"{today_pct}%", ha='center', va='center', fontsize=18, fontweight='bold', color="#1A73E8")
+
     plt.tight_layout()
-
     st.pyplot(fig)
 
     achieved_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "achieved")
@@ -1939,7 +1958,7 @@ elif st.session_state.page == "report":
     with col5:
         if st.button("🔥 Daily Streak"):
             go_to_page("daily_streak")
-
+            
 # -------------------------------
 # DAILY STREAK PAGE (with medals)
 # -------------------------------
@@ -2085,6 +2104,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
