@@ -1748,6 +1748,9 @@ elif st.session_state.page == "report":
     ensure_user_structures(username)
     ensure_week_current(username)
 
+    # -------------------------------
+    # Compute today's percentage completion
+    # -------------------------------
     completed_iso = user_data[username]["streak"].get("completed_days", [])
     completed_dates = []
     for s in completed_iso:
@@ -1804,12 +1807,13 @@ elif st.session_state.page == "report":
     )
     st.plotly_chart(fig_daily, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
+    # -------------------------------
+    # Dynamic completion message
+    # -------------------------------
     if today_pct >= 100:
         st.success("🏆 Goal achieved today! Fantastic work — keep the streak alive! 💧")
-    elif today_pct >= 75:
-        st.info(f"💦 You're {today_pct}% there — a little more and you hit the goal!")
     elif today_pct > 0:
-        st.info(f"🙂 You've completed {today_pct}% of your goal today — keep sipping!")
+        st.info(f"💦 You've completed {today_pct}% of your daily goal.")
     else:
         st.info("🎯 Not started yet — let's drink some water and get moving!")
 
@@ -1906,9 +1910,9 @@ elif st.session_state.page == "report":
     )
 
     # -------------------------------
-    # Matplotlib Circular Daily Progress (Enhanced)
+    # Matplotlib Circular Daily Progress (Dynamic)
     # -------------------------------
-    
+    import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(4,4))
     ax.axis('equal')  # Keep circle round
@@ -1917,7 +1921,7 @@ elif st.session_state.page == "report":
     ax.pie([100], radius=1, colors=["#E0E0E0"], startangle=90, counterclock=False,
            wedgeprops=dict(width=0.15, edgecolor='white'))
 
-    # Draw progress portion
+    # Draw progress portion based on today_pct
     ax.pie([today_pct, 100-today_pct], radius=1, colors=["#1A73E8", "none"], startangle=90,
            counterclock=False, wedgeprops=dict(width=0.15, edgecolor='white'))
 
@@ -1930,6 +1934,9 @@ elif st.session_state.page == "report":
     plt.tight_layout()
     st.pyplot(fig)
 
+    # -------------------------------
+    # Footer buttons and navigation
+    # -------------------------------
     achieved_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "achieved")
     almost_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "almost")
     missed_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "missed")
@@ -2097,6 +2104,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
