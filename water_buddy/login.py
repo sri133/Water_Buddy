@@ -1671,10 +1671,342 @@ elif st.session_state.page == "quiz":
             go_to_page("daily_streak")
 
 # -------------------------------
-# REPORT, DAILY STREAK etc (unchanged from your parts, already included above)
+# REPORT PAGE (no mascot)
 # -------------------------------
-# (The rest of the code for report and streak already included earlier in your parts.)
-# End of file
+elif st.session_state.page == "report":
+    if not st.session_state.logged_in:
+        go_to_page("login")
+
+    set_background()  # <-- add here
+    username = st.session_state.username
+
+    st.markdown(
+        "<h1 style='text-align:center; color:#1A73E8;'>📊 Hydration Report</h1>",
+        unsafe_allow_html=True
+    )
+    st.write("---")
+
+    ensure_user_structures(username)
+    ensure_week_current(username)
+
+    completed_iso = user_data[username]["streak"].get("completed_days", [])
+    completed_dates = []
+    for s in completed_iso:
+        try:
+            d = datetime.strptime(s, "%Y-%m-%d").date()
+            completed_dates.append(d)
+        except Exception:
+            continue
+
+    today = date.today()
+    daily_goal = user_data[username]["water_profile"].get(
+        "daily_goal", user_data[username].get("ai_water_goal", 2.5)
+    )
+
+    if today in completed_dates:
+        today_pct = 100
+    else:
+        if st.session_state.total_intake:
+            today_pct = min(round(st.session_state.total_intake / daily_goal * 100), 100)
+        else:
+            today_pct = 0
+
+    st.markdown("### Today's Progress")
+
+    fig_daily = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=today_pct,
+            domain={'x': [0, 1], 'y': [0, 1]},
+            title={'text': "Today's Hydration", 'font': {'size': 18}},
+            gauge={
+                'axis': {'range': [0, 100]},
+                'bar': {'color': "#1A73E8"},
+                'steps': [
+                    {'range': [0, 50], 'color': "#FFD9D9"},
+                    {'range': [50, 75], 'color': "#FFF1B6"},
+                    {'range': [75, 100], 'color': "#D7EEFF"}
+                ],
+                'threshold': {
+                    'line': {'color': "#0B63C6", 'width': 6},
+                    'thickness': 0.75,
+                    'value': 100
+                }
+            }
+        )
+    )
+    fig_daily.update_layout(
+        height=300,
+        margin=dict(l=20, r=20, t=30, b=20),
+        paper_bgcolor="rgba(0,0,0,0)"
+    )
+    st.plotly_chart(fig_daily, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
+
+    if today_pct >= 100:
+        st.success("🏆 Goal achieved today! Fantastic work — keep the streak alive! 💧")
+    elif today_pct >= 75:
+        st.info(f"💦 You're {today_pct}% there — a little more and you hit the goal!")
+    elif today_pct > 0:
+        st.info(f"🙂 You've completed {today_pct}% of your goal today — keep sipping!")
+    else:
+        st.info("🎯 Not started yet — let's drink some water and get moving!")
+
+    st.write("---")
+    st.markdown("### Weekly Progress (Mon → Sun) — Current Week")
+
+    weekly = user_data[username].get("weekly_data", {"week_start": None, "days": {}})
+    week_start_str = weekly.get("week_start")
+    if not week_start_str:
+        week_start_dt = current_week_start()
+        week_start_str = week_start_dt.strftime("%Y-%m-%d")
+        weekly["week_start"] = week_start_str
+        save_user_data(user_data)
+
+    week_start_dt = datetime.strptime(week_start_str, "%Y-%m-%d").date()
+    week_days = [week_start_dt + timedelta(days=i) for i in range(7)]
+    labels = [d.strftime("%a\n%d %b") for d in week_days]
+    week_days_str = [d.strftime("%Y-%m-%d") for d in week_days]
+
+    liters_list = []
+    pct_list = []
+    status_list = []
+
+    for d_str, d in zip(week_days_str, week_days):
+        liters = weekly.get("days", {}).get(d_str)
+        if liters is None:
+            liters = st.session_state.total_intake if d == today else 0.0
+        liters_list.append(liters)
+
+        pct = min(round((liters / daily_goal) * 100), 100) if daily_goal > 0 else 0
+        pct_list.append(pct)
+
+        if d > today:
+            status = "upcoming"
+        else:
+            if pct >= 100:
+                status = "achieved"
+            elif pct >= 75:
+                status = "almost"
+            elif pct > 0:
+                status = "partial"
+            else:
+                status = "missed"
+        status_list.append(status)
+
+    def week_color_for_status(s):
+        if s == "achieved":
+            return "#1A73E8"
+        if s == "almost":
+            return "#FFD23F"
+        if s == "partial":
+            return "#FFD9A6"
+        if s == "upcoming":
+            return "rgba(255,255,255,0.06)"
+        return "#FF6B6B"
+
+    colors = [week_color_for_status(s) for s in status_list]
+
+    df_week = pd.DataFrame({
+        "label": labels,
+        "pct": pct_list,
+        "liters": liters_list,
+        "status": status_list
+    })
+
+    fig_week = go.Figure()
+    fig_week.add_trace(
+        go.Bar(
+            x=df_week["label"],
+            y=df_week["pct"],
+            marker_color=colors,
+            text=[f"{v}%" if v > 0 else "" for v in df_week["pct"]],
+            textposition='outside',
+            hovertemplate="%{x}<br>%{y}%<br>Liters: %{customdata} L<extra></extra>",
+            customdata=[round(v, 2) for v in df_week["liters"]]
+        )
+    )
+    fig_week.update_layout(
+        yaxis={'title': 'Completion %', 'range': [0, 100]},
+        showlegend=False,
+        margin=dict(l=20, r=20, t=20, b=40),
+        height=340,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)"
+    )
+    st.plotly_chart(fig_week, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': True})
+
+    st.markdown(
+        '<p style="font-size:14px; color:gray;">Please double-tap to zoom out from the graph.</p>',
+        unsafe_allow_html=True
+    )
+
+    achieved_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "achieved")
+    almost_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "almost")
+    missed_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "missed")
+
+    st.write("---")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        if st.button("🏠 Home"):
+            go_to_page("home")
+    with col2:
+        if st.button("👤 Personal Settings"):
+            go_to_page("settings")
+    with col3:
+        if st.button("🚰 Water Intake"):
+            go_to_page("water_profile")
+    with col4:
+        st.info("You're on Report")
+    with col5:
+        if st.button("🔥 Daily Streak"):
+            go_to_page("daily_streak")
+
+# -------------------------------
+# DAILY STREAK PAGE (with medals)
+# -------------------------------
+elif st.session_state.page == "daily_streak":
+    if not st.session_state.logged_in:
+        go_to_page("login")
+
+    set_background()  # <-- add here
+    username = st.session_state.username
+    today = date.today()
+    year, month = today.year, today.month
+    days_in_month = calendar.monthrange(year, month)[1]
+
+    ensure_user_structures(username)
+    streak_info = user_data[username].get(
+        "streak", {"completed_days": [], "current_streak": 0}
+    )
+    completed_iso = streak_info.get("completed_days", [])
+    current_streak = streak_info.get("current_streak", 0)
+
+    completed_dates = []
+    for s in completed_iso:
+        try:
+            d = datetime.strptime(s, "%Y-%m-%d").date()
+            completed_dates.append(d)
+        except Exception:
+            continue
+
+    # ------------------- Medal Unlocks -------------------
+    medals = [
+        {"name": "Bronze", "days_required": 3, "icon": "🥉"},
+        {"name": "Silver", "days_required": 7, "icon": "🥈"},
+        {"name": "Gold", "days_required": 14, "icon": "🥇"},
+    ]
+
+    st.markdown(
+        "<h3 style='text-align:center; color:#1A73E8;'>🏅 Medal Achievements</h3>",
+        unsafe_allow_html=True
+    )
+    medal_html = "<div style='display:flex; justify-content:center; gap:20px; margin-bottom:20px;'>"
+    for medal in medals:
+        if current_streak >= medal["days_required"]:  # unlocked medal
+            medal_html += f"<div style='text-align:center; font-size:36px;' title='{medal['name']} Medal Unlocked!'>{medal['icon']}</div>"
+        else:  # locked medal (dimmed)
+            medal_html += f"<div style='text-align:center; font-size:36px; color:lightgray;' title='{medal['name']} Medal Locked'>{medal['icon']}</div>"
+    medal_html += "</div>"
+    st.markdown(medal_html, unsafe_allow_html=True)
+
+    # ------------------- Stars Grid -------------------
+    star_css = """
+    <style>
+    .star-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; justify-items: center; align-items: center; padding: 6px 4%; }
+    .star { width:42px; height:42px; display:flex; align-items:center; justify-content:center; font-size:16px; border-radius:6px; transition: transform .12s ease, box-shadow .12s ease, background-color .12s ease, filter .12s ease; cursor: pointer; user-select: none; text-decoration:none; line-height:1; }
+    .star:hover { transform: translateY(-6px) scale(1.06); }
+    .star.dim { background: rgba(255,255,255,0.03); color: #bdbdbd; box-shadow: none; filter: grayscale(10%); }
+    .star.upcoming { background: rgba(255,255,255,0.02); color: #999; box-shadow: none; filter: grayscale(30%); }
+    .star.achieved { background: radial-gradient(circle at 30% 20%, #fff6c2, #ffd85c 40%, #ffb400 100%); color: #4b2a00; box-shadow: 0 8px 22px rgba(255,176,0,0.42), 0 2px 6px rgba(0,0,0,0.18); }
+    .star.small { width:38px; height:38px; font-size:14px; }
+    @media(max-width:600px){ .star-grid { grid-template-columns: repeat(4, 1fr); gap:10px; } .star { width:36px; height:36px; font-size:14px; } }
+    </style>
+    """
+    stars_html = "<div class='star-grid'>"
+    for d in range(1, days_in_month + 1):
+        the_date = date(year, month, d)
+        iso = the_date.strftime("%Y-%m-%d")
+        if the_date > today:
+            css_class = "upcoming small"
+        else:
+            css_class = "achieved small" if the_date in completed_dates else "dim small"
+        href = f"?selected_day={iso}"
+        stars_html += f"<a class='star {css_class}' href='{href}' title='Day {d}'>{d}</a>"
+    stars_html += "</div>"
+    st.markdown(star_css + stars_html, unsafe_allow_html=True)
+
+    query_params = st.experimental_get_query_params()
+    selected_day_param = query_params.get("selected_day", [None])[0]
+
+    if selected_day_param:
+        try:
+            sel_date = datetime.strptime(selected_day_param, "%Y-%m-%d").date()
+            sel_day_num = sel_date.day
+            if sel_date > today:
+                status_txt = "upcoming"
+            else:
+                status_txt = "achieved" if sel_date in completed_dates else "missed"
+
+            card_html = "<div class='slide-card' style='position: fixed; left:50%; transform: translateX(-50%); bottom:18px; width:340px; max-width:92%; background:linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,250,250,0.98)); color:#111; border-radius:12px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); padding:14px 16px; z-index:2000;'>"
+            card_html += f"<h4 style='margin:0 0 6px 0; font-size:16px;'>Day {sel_day_num} — {sel_date.strftime('%b %d, %Y')}</h4>"
+            if status_txt == "achieved":
+                card_html += "<p style='margin:0; font-size:14px; color:#333;'>🎉 Goal completed on this day! Great job.</p>"
+            elif status_txt == "upcoming":
+                card_html += "<p style='margin:0; font-size:14px; color:#333;'>⏳ This day is upcoming — no data yet.</p>"
+            else:
+                card_html += "<p style='margin:0; font-size:14px; color:#333;'>💧 Goal missed on this day. Keep trying — tomorrow is new!</p>"
+            card_html += "<div><span class='close-btn' style='display:inline-block; margin-top:10px; color:#1A73E8; text-decoration:none; font-weight:600; cursor:pointer;' onclick=\"history.replaceState(null, '', window.location.pathname);\">Close</span></div>"
+            card_html += "</div>"
+
+            js_hide_on_scroll = """
+            <script>
+            (function(){
+                var hidden = false;
+                window.addEventListener('scroll', function(){
+                    if(window.location.search.indexOf('selected_day') !== -1 && !hidden){
+                        history.replaceState(null, '', window.location.pathname);
+                        hidden = true;
+                    }
+                }, {passive:true});
+            })();
+            </script>
+            """
+            st.markdown(card_html + js_hide_on_scroll, unsafe_allow_html=True)
+        except Exception:
+            pass
+
+    st.write("---")
+
+    completed_dates_in_month = sorted([d for d in completed_dates if d.year == year and d.month == month])
+    completed_days_numbers = [d.day for d in completed_dates_in_month]
+    last_completed_day_num = max(completed_days_numbers) if completed_days_numbers else None
+
+    st.markdown(
+        f"<h2 style='text-align:center; color:#1A73E8;'>🔥 Daily Streak: {current_streak} Days</h2>",
+        unsafe_allow_html=True
+    )
+    st.write("---")
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        if st.button("🏠 Home"):
+            go_to_page("home")
+    with col2:
+        if st.button("👤 Personal Settings"):
+            go_to_page("settings")
+    with col3:
+        if st.button("🚰 Water Intake"):
+            go_to_page("water_profile")
+    with col4:
+        if st.button("📈 Report"):
+            go_to_page("report")
+    with col5:
+        st.info("You're on Daily Streak")
+
+    # Mascot inline next to streak header / content
+    mascot = choose_mascot_and_message("daily_streak", username)
+    render_mascot_inline(mascot)
+
 
 
 
