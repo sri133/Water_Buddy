@@ -1086,8 +1086,8 @@ elif st.session_state.page == "thirsty_cup":
             window.addEventListener('resize', resizeCanvas);
 
             const totalDrops = 16;
-            const dropSpeedMin = 1.2;
-            const dropSpeedMax = 3.2;
+            const dropSpeedMin = 4;
+            const dropSpeedMax = 6;
             const cupWidthBase = Math.max(80, Math.round(canvas.width * 0.12));
             const cupHeightBase = Math.max(36, Math.round(canvas.height * 0.06));
             let cupY = canvas.height - cupHeightBase - 40;
@@ -2006,6 +2006,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
