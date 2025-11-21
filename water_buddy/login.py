@@ -581,16 +581,40 @@ def grade_quiz_and_explain(quiz, answers):
 
 # -------------------------------
 # Reset helper (safe)
-# -------------------------------
+# --------------------------------
+
 def reset_page_inputs_session():
+
     preserve = {"logged_in", "username", "page"}
-    keys_to_delete = [k for k in list(st.session_state.keys()) if k not in preserve]
+
+    keys_to_delete = [
+        k for k in list(st.session_state.keys())
+        if k not in preserve
+    ]
+
     for k in keys_to_delete:
         try:
             del st.session_state[k]
-        except Exception:
+        except:
             pass
-    # Reset UI session variables without touching DB
+
+    # Explicitly remove all widget keys for Settings
+    for k in [
+        "settings_name", "settings_age", "settings_country",
+        "settings_language", "settings_height_unit",
+        "settings_height", "settings_weight_unit",
+        "settings_weight", "settings_health_condition",
+        "settings_health_problems"
+    ]:
+        st.session_state.pop(k, None)
+
+    # Explicitly remove widget keys for Water Intake
+    for k in [
+        "water_profile_daily_goal", "water_profile_frequency"
+    ]:
+        st.session_state.pop(k, None)
+
+    # Reset UI session variables
     st.session_state.total_intake = 0.0
     st.session_state.water_intake_log = []
     st.session_state.chat_history = []
@@ -600,10 +624,11 @@ def reset_page_inputs_session():
     st.session_state.quiz_results = None
     st.session_state.quiz_score = 0
 
-    # ⭐ ADD THIS LINE ⭐
+    # Force rerun next frame
     st.session_state.just_reset = True
 
     st.rerun()
+
 
 # -------------------------------
 # LOGIN PAGE
@@ -1961,6 +1986,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
