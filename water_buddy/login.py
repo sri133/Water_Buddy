@@ -599,6 +599,10 @@ def reset_page_inputs_session():
     st.session_state.quiz_submitted = False
     st.session_state.quiz_results = None
     st.session_state.quiz_score = 0
+
+    # ⭐ ADD THIS LINE ⭐
+    st.session_state.just_reset = True
+
     st.rerun()
 
 # -------------------------------
@@ -647,6 +651,9 @@ if st.session_state.page == "login":
 # PERSONAL SETTINGS PAGE
 # -------------------------------
 elif st.session_state.page == "settings":
+    if st.session_state.get("just_reset"):
+    st.session_state.just_reset = False
+    st.rerun()
     if not st.session_state.logged_in:
         go_to_page("login")
     set_background()
@@ -728,6 +735,9 @@ elif st.session_state.page == "settings":
 # WATER INTAKE PAGE
 # -------------------------------
 elif st.session_state.page == "water_profile":
+    if st.session_state.get("just_reset"):
+    st.session_state.just_reset = False
+    st.rerun()
     if not st.session_state.logged_in:
         go_to_page("login")
 
@@ -1945,6 +1955,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
