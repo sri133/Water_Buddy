@@ -1583,7 +1583,7 @@ if st.button("Send", key="chat_send"):
         else:
             reply = "Gemini not configured."
         st.session_state.chat_history.append({"role": "assistant", "text": reply})
-        st.experimental_rerun()
+        st.rerun()
 
 
 # -------------------------------
@@ -2054,6 +2054,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
