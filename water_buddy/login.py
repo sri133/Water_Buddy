@@ -515,14 +515,23 @@ def render_mascot_inline(mascot: Optional[Dict[str, Any]]):
         st.session_state.mascot_tts_played_for.add(mid)
 
 # -------------------------------
-# Quiz utilities
+# Quiz utilities (persistent)
 # -------------------------------
-def generate_quiz_via_model():
+def generate_quiz_via_model(username):
+    # Check if user already has a quiz for today
+    today_str = date.today().isoformat()
+    ensure_user_structures(username)
+    user_quiz_data = user_data[username].setdefault("daily_quiz_data", {})
+    if user_quiz_data.get("date") == today_str and user_quiz_data.get("quiz"):
+        return user_quiz_data["quiz"]
+
+    # Generate new quiz
     fallback = generate_quiz_fallback()
     try:
         if not model:
-            return fallback
-        prompt = """
+            quiz = fallback
+        else:
+            prompt = """
 Generate 10 multiple-choice questions about water (health/hydration facts, water history, and recent water-related news/documentaries).
 Return as valid JSON array only. Each item must be an object with fields:
 - "q": question text
@@ -531,90 +540,22 @@ Return as valid JSON array only. Each item must be an object with fields:
 - "explanation": short explanation (1-2 sentences) why the correct answer is correct.
 Keep each question concise and suitable for general audience.
 """
-        resp = model.generate_content(prompt)
-        text = resp.text.strip()
-        json_start = text.find("[")
-        json_text = text if json_start == 0 else text[json_start:]
-        data = json.loads(json_text)
-        if isinstance(data, list) and len(data) >= 10:
-            return data[:10]
-        else:
-            return fallback
+            resp = model.generate_content(prompt)
+            text = resp.text.strip()
+            json_start = text.find("[")
+            json_text = text if json_start == 0 else text[json_start:]
+            data = json.loads(json_text)
+            if isinstance(data, list) and len(data) >= 10:
+                quiz = data[:10]
+            else:
+                quiz = fallback
     except Exception:
-        return fallback
+        quiz = fallback
 
-def generate_quiz_fallback():
-    sample = [
-        {
-            "q": "What percentage of the adult human body is roughly water?",
-            "options": ["~30%", "~60%", "~80%", "~95%"],
-            "correct_index": 1,
-            "explanation": "About 60% of an adult human's body is water, though this varies with age, sex, and body composition."
-        },
-        {
-            "q": "Which process returns water to the atmosphere from plants?",
-            "options": ["Condensation", "Precipitation", "Transpiration", "Infiltration"],
-            "correct_index": 2,
-            "explanation": "Transpiration is the process where plants release water vapor to the atmosphere from their leaves."
-        },
-        {
-            "q": "Which is the primary source of fresh water for most cities?",
-            "options": ["Seawater", "Groundwater and rivers/lakes", "Glaciers only", "Rainwater only"],
-            "correct_index": 1,
-            "explanation": "Most cities rely on surface water (rivers/lakes) and groundwater; sources vary by region."
-        },
-        {
-            "q": "Who invented the steam engine that helped early water pumping in the 1700s?",
-            "options": ["James Watt", "Isaac Newton", "Thomas Edison", "Nikola Tesla"],
-            "correct_index": 0,
-            "explanation": "James Watt improved steam engine designs that were important for pumping and industrial uses."
-        },
-        {
-            "q": "What is a common method to make seawater drinkable?",
-            "options": ["Filtration only", "Chlorination", "Desalination", "Sedimentation"],
-            "correct_index": 2,
-            "explanation": "Desalination removes salts and minerals from seawater, making it suitable to drink."
-        },
-        {
-            "q": "Which documentary theme would most likely be featured on a water-focused film?",
-            "options": ["Space travel", "Water scarcity and conservation", "Mountain climbing", "Astrophysics"],
-            "correct_index": 1,
-            "explanation": "Water-focused documentaries often highlight scarcity, conservation, pollution, and solutions."
-        },
-        {
-            "q": "What is the main reason to avoid drinking large volumes right before bed?",
-            "options": ["It causes headaches", "It can disrupt sleep with bathroom trips", "It freezes in the body", "It removes vitamins"],
-            "correct_index": 1,
-            "explanation": "Drinking a lot before sleep may lead to waking up at night to use the bathroom, disrupting sleep."
-        },
-        {
-            "q": "Which gas dissolves in water and is essential for plant photosynthesis?",
-            "options": ["Oxygen", "Nitrogen", "Carbon dioxide", "Helium"],
-            "correct_index": 2,
-            "explanation": "Carbon dioxide dissolves in water and is used by aquatic plants in photosynthesis."
-        },
-        {
-            "q": "Which ancient civilization developed advanced irrigation systems?",
-            "options": ["Incas", "Indus Valley, Mesopotamia, and Egyptians", "Victorians", "Aztecs only"],
-            "correct_index": 1,
-            "explanation": "Civilizations like Mesopotamia, the Indus Valley, and ancient Egypt developed early irrigation to support agriculture."
-        },
-        {
-            "q": "What is one simple way households can conserve water daily?",
-            "options": ["Run taps while brushing teeth", "Take longer showers", "Repair leaks and use efficient fixtures", "Water the lawn midday"],
-            "correct_index": 2,
-            "explanation": "Fixing leaks and using efficient fixtures (low-flow faucets, showerheads) is an effective way to conserve water."
-        }
-    ]
-    return sample
-
-def get_daily_quiz():
-    today_str = date.today().isoformat()
-    if st.session_state.get("daily_quiz_date") == today_str and st.session_state.get("daily_quiz"):
-        return st.session_state["daily_quiz"]
-    quiz = generate_quiz_via_model()
-    st.session_state["daily_quiz_date"] = today_str
-    st.session_state["daily_quiz"] = quiz
+    # Save to user_data for persistence
+    user_quiz_data["quiz"] = quiz
+    user_quiz_data["date"] = today_str
+    save_user_data(user_data)
     return quiz
 
 def grade_quiz_and_explain(quiz, answers):
@@ -626,10 +567,7 @@ def grade_quiz_and_explain(quiz, answers):
         is_correct = (selected == correct)
         if is_correct:
             score += 1
-        explanation = item.get("explanation")
-        if not explanation:
-            context = f"Explain why the option '{item['options'][correct]}' is the correct answer for the question: {item['q']}"
-            explanation = ask_gemini_for_message(context, "This is the correct answer because of established facts.")
+        explanation = item.get("explanation") or f"This is correct because '{item['options'][correct]}' is the right answer."
         results.append({
             "q": item["q"],
             "options": item["options"],
@@ -641,7 +579,7 @@ def grade_quiz_and_explain(quiz, answers):
     return results, score
 
 # -------------------------------
-# RESET helper (safe, fixed)
+# Reset helper (safe)
 # -------------------------------
 def reset_page_inputs_session():
     preserve = {"logged_in", "username", "page"}
@@ -651,6 +589,7 @@ def reset_page_inputs_session():
             del st.session_state[k]
         except Exception:
             pass
+    # Reset UI session variables without touching DB
     st.session_state.total_intake = 0.0
     st.session_state.water_intake_log = []
     st.session_state.chat_history = []
@@ -659,12 +598,6 @@ def reset_page_inputs_session():
     st.session_state.quiz_submitted = False
     st.session_state.quiz_results = None
     st.session_state.quiz_score = 0
-    st.session_state.daily_quiz = None
-    st.session_state.daily_quiz_date = None
-    try:
-        st.session_state.last_goal_completed_at = None
-    except Exception:
-        pass
     st.rerun()
 
 # -------------------------------
@@ -687,17 +620,7 @@ if st.session_state.page == "login":
             else:
                 users[username] = password
                 save_credentials(users)
-                if username not in user_data:
-                    user_data[username] = {}
-                user_data[username].setdefault("profile", {})
-                user_data[username]["ai_water_goal"] = 2.5
-                user_data[username]["water_profile"] = {"daily_goal": 2.5, "frequency": "30 minutes"}
-                user_data[username]["streak"] = {"completed_days": [], "current_streak": 0}
-                user_data[username]["daily_intake"] = {}
-                yesterday_str = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
-                user_data[username]["daily_intake"]["last_login_date"] = yesterday_str
-                user_data[username]["weekly_data"] = {"week_start": None, "days": {}}
-                save_user_data(user_data)
+                ensure_user_structures(username)
                 st.success("✅ Account created successfully! Please login.")
         elif option == "Login":
             if username in users and users[username] == password:
@@ -706,21 +629,18 @@ if st.session_state.page == "login":
                 ensure_user_structures(username)
                 load_today_intake_into_session(username)
                 ensure_week_current(username)
-                if username in user_data and user_data[username].get("profile"):
+                # Go to home if profile exists
+                if user_data.get(username, {}).get("profile"):
                     go_to_page("home")
                 else:
                     go_to_page("settings")
             else:
                 st.error("❌ Invalid username or password.")
 
-    # Inline mascot for login
+    # Inline mascot
     mascot = choose_mascot_and_message("login", st.session_state.username or "")
     render_mascot_inline(mascot)
-
-    st.markdown(
-        '<p style="font-size:14px; color:gray;">If you don’t have an account, please sign up first, then change the option to Login and submit again so you can log in.</p>',
-        unsafe_allow_html=True
-    )
+    st.markdown('<p style="font-size:14px; color:gray;">Sign up first, then login with your credentials.</p>', unsafe_allow_html=True)
 
 # -------------------------------
 # PERSONAL SETTINGS PAGE
@@ -735,7 +655,7 @@ elif st.session_state.page == "settings":
 
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Personal Settings</h1>", unsafe_allow_html=True)
 
-    # User info inputs
+    # Inputs
     name = st.text_input("Name", value=saved.get("Name", username), key="settings_name")
     age = st.text_input("Age", value=saved.get("Age", ""), key="settings_age")
     country = st.selectbox(
@@ -745,8 +665,6 @@ elif st.session_state.page == "settings":
         key="settings_country"
     )
     language = st.text_input("Language", value=saved.get("Language", ""), key="settings_language")
-
-    st.write("---")
     height_unit = st.radio("Height Unit", ["cm", "feet"], horizontal=True, key="settings_height_unit")
     height = st.number_input(
         f"Height ({height_unit})",
@@ -759,8 +677,6 @@ elif st.session_state.page == "settings":
         value=float(saved.get("Weight", "0").split()[0]) if "Weight" in saved else 0.0,
         key="settings_weight"
     )
-
-    # BMI calculation
     def calculate_bmi(weight, height, weight_unit, height_unit):
         if height_unit == "feet":
             height_m = height * 0.3048
@@ -771,7 +687,6 @@ elif st.session_state.page == "settings":
         else:
             weight_kg = weight
         return round(weight_kg / (height_m ** 2), 2) if height_m > 0 else 0
-
     bmi = calculate_bmi(weight, height, weight_unit, height_unit)
     st.write(f"**Your BMI is:** {bmi}")
 
@@ -783,8 +698,6 @@ elif st.session_state.page == "settings":
         key="settings_health_condition"
     )
     health_problems = st.text_area("Health problems", value=saved.get("Health Problems", ""), key="settings_health_problems")
-
-    st.write("---")
 
     old_profile = user_data.get(username, {}).get("profile", {})
     new_profile_data = {
@@ -800,67 +713,13 @@ elif st.session_state.page == "settings":
     }
 
     if st.button("Save & Continue ➡️"):
-        recalc_needed = new_profile_data != old_profile
-        suggested_water_intake = user_data.get(username, {}).get("ai_water_goal", 2.5)
-        text_output = ""
-
-        if recalc_needed:
-            with st.spinner("🤖 Water Buddy is calculating your ideal water intake..."):
-                prompt = f"""
-You are Water Buddy, a smart hydration assistant.
-Based on this user's personal health information, calculate and return ONLY a JSON object with one key:
-"goal_liters": <number of liters per day>
-
-Example: {{"goal_liters": 3.2}}
-
-Do not include any text or explanation outside JSON.
-
-User Info:
-- Age: {age}
-- Height: {height} {height_unit}
-- Weight: {weight} {weight_unit}
-- BMI: {bmi}
-- Health condition: {health_condition}
-- Health problems: {health_problems if health_problems else "None"}
-"""
-                try:
-                    if model:
-                        response = model.generate_content(prompt)
-                        text_output = response.text.strip()
-                        match_json = re.search(r'\{.*\}', text_output)
-                        if match_json:
-                            data = json.loads(match_json.group(0))
-                            suggested_water_intake = float(data.get("goal_liters", 2.5))
-                        else:
-                            match_num = re.search(r"(\d+(\.\d+)?)", text_output)
-                            if match_num:
-                                suggested_water_intake = float(match_num.group(1))
-                            else:
-                                raise ValueError("No numeric value found in Gemini output.")
-                    else:
-                        raise RuntimeError("Gemini model not configured")
-                except Exception as e:
-                    st.warning(f"⚠️ Water Buddy suggestion failed — using default 2.5 L ({e})")
-                    suggested_water_intake = 2.5
-                    text_output = f"Error: {e}"
-        else:
-            text_output = "Profile unchanged — using previous goal."
-
-        # Save profile & water goal
         ensure_user_structures(username)
         user_data[username]["profile"] = new_profile_data
-        user_data[username]["ai_water_goal"] = round(suggested_water_intake, 2)
-        user_data[username].setdefault("water_profile", {"daily_goal": suggested_water_intake, "frequency": "30 minutes"})
-        user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
-        user_data[username].setdefault("daily_intake", user_data[username].get("daily_intake", {}))
-        user_data[username].setdefault("weekly_data", user_data[username].get("weekly_data", {"week_start": None, "days": {}}))
+        user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
         save_user_data(user_data)
-
-        st.success(f"✅ Profile saved! Water Buddy suggests {suggested_water_intake:.2f} L/day 💧")
-        st.info(f"Water Buddy output: {text_output}")
+        st.success(f"✅ Profile saved! Water Buddy suggests {user_data[username].get('ai_water_goal',2.5)} L/day 💧")
         go_to_page("water_profile")
 
-    st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_settings"):
         reset_page_inputs_session()
 
@@ -874,46 +733,38 @@ elif st.session_state.page == "water_profile":
     set_background()
     username = st.session_state.username
     ensure_user_structures(username)
-
-    # Use Gemini goal as default
-    ai_goal = user_data.get(username, {}).get("ai_water_goal", 2.5)
     saved = user_data.get(username, {}).get("water_profile", {})
+    ai_goal = user_data.get(username, {}).get("ai_water_goal", 2.5)
 
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Intake</h1>", unsafe_allow_html=True)
-    st.success(f"Your ideal daily water intake is **{ai_goal} L/day**, as suggested by Water Buddy 💧")
+    st.success(f"Your ideal daily water intake is **{ai_goal} L/day** 💧")
 
-    # Daily goal slider (defaults to Gemini's suggested goal)
     daily_goal = st.slider(
         "Set your daily water goal (L):",
         0.5, 10.0, float(ai_goal), 0.1,
         key="water_profile_daily_goal"
     )
-
-    # Reminder frequency
     frequency_options = [f"{i} minutes" for i in range(5, 185, 5)]
     selected_frequency = st.selectbox(
         "🔔 Reminder Frequency:",
         frequency_options,
-        index=frequency_options.index(saved.get("frequency", "30 minutes")),
+        index=frequency_options.index(saved.get("frequency", "30 minutes")) if saved.get("frequency") else frequency_options.index("30 minutes"),
         key="water_profile_frequency"
     )
 
-    # Save changes
     if st.button("💾 Save & Continue ➡️"):
         user_data[username]["water_profile"] = {
             "daily_goal": daily_goal,
             "frequency": selected_frequency
         }
-        user_data[username]["ai_water_goal"] = daily_goal  # Sync slider value with Gemini goal
+        user_data[username]["ai_water_goal"] = daily_goal
         save_user_data(user_data)
         st.success("✅ Water profile saved successfully!")
         go_to_page("home")
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Reset page
     if st.button("🔄 Reset Page", key="reset_water_profile"):
         reset_page_inputs_session()
+
 
 # -------------------------------
 # THIRSTY CUP - Full Screen Game Page (FULL with Shop)
@@ -2079,6 +1930,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
