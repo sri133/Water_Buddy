@@ -1672,13 +1672,13 @@ elif st.session_state.page == "quiz":
             go_to_page("daily_streak")
 
 # -------------------------------
-# REPORT PAGE (no mascot)
+# REPORT PAGE (with Matplotlib)
 # -------------------------------
 elif st.session_state.page == "report":
     if not st.session_state.logged_in:
         go_to_page("login")
 
-    set_background()  # <-- add here
+    set_background()  # <-- keep background consistent
     username = st.session_state.username
 
     st.markdown(
@@ -1714,6 +1714,9 @@ elif st.session_state.page == "report":
 
     st.markdown("### Today's Progress")
 
+    # -------------------------------
+    # Plotly Gauge for Today's Hydration
+    # -------------------------------
     fig_daily = go.Figure(
         go.Indicator(
             mode="gauge+number",
@@ -1814,6 +1817,9 @@ elif st.session_state.page == "report":
         "status": status_list
     })
 
+    # -------------------------------
+    # Plotly Weekly Bar Chart
+    # -------------------------------
     fig_week = go.Figure()
     fig_week.add_trace(
         go.Bar(
@@ -1840,6 +1846,21 @@ elif st.session_state.page == "report":
         '<p style="font-size:14px; color:gray;">Please double-tap to zoom out from the graph.</p>',
         unsafe_allow_html=True
     )
+
+    # -------------------------------
+    # Matplotlib Weekly Water Intake (Simple)
+    # -------------------------------
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(6,3))
+    ax.bar(df_week['label'], df_week['liters'], color='skyblue')
+    ax.set_ylabel("Liters")
+    ax.set_title("Weekly Water Intake (Matplotlib)")
+    ax.set_ylim(0, max(max(df_week['liters']), daily_goal)+0.5)
+    plt.xticks(rotation=30, ha='right')
+    plt.tight_layout()
+
+    st.pyplot(fig)
 
     achieved_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "achieved")
     almost_days = sum(1 for s, d in zip(status_list, week_days) if d <= today and s == "almost")
@@ -2007,6 +2028,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
