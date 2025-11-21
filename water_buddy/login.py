@@ -23,6 +23,18 @@ import time
 from gtts import gTTS
 import base64
 
+# -----------------------------------------
+# ADD THIS FUNCTION RIGHT HERE
+# -----------------------------------------
+def text_to_speech(text):
+    from gtts import gTTS
+    import tempfile
+
+    tts = gTTS(text)
+    temp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+    tts.save(temp.name)
+    return temp.name
+
 def play_tts(text, lang="en"):
     tts = gTTS(text=text, lang=lang)
     tts.save("tts_output.mp3")
@@ -846,14 +858,24 @@ User Info:
 elif st.session_state.page == "water_profile":
     if not st.session_state.logged_in:
         go_to_page("login")
+
     set_background()
+
     username = st.session_state.username
     ensure_user_structures(username)
+
     ai_goal = user_data.get(username, {}).get("ai_water_goal", 2.5)
     saved = user_data.get(username, {}).get("water_profile", {})
+
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Intake</h1>", unsafe_allow_html=True)
     st.success(f"Your ideal daily water intake is **{ai_goal} L/day**, as suggested by Water Buddy 💧")
-    daily_goal = st.slider("Set your daily water goal (L):", 0.5, 10.0, float(ai_goal), 0.1, key="water_profile_daily_goal")
+
+    daily_goal = st.slider(
+        "Set your daily water goal (L):",
+        0.5, 10.0, float(ai_goal), 0.1,
+        key="water_profile_daily_goal"
+    )
+
     frequency_options = [f"{i} minutes" for i in range(5, 185, 5)]
     selected_frequency = st.selectbox(
         "🔔 Reminder Frequency:",
@@ -861,14 +883,23 @@ elif st.session_state.page == "water_profile":
         index=frequency_options.index(saved.get("frequency", "30 minutes")),
         key="water_profile_frequency"
     )
+
+    # Save & Continue
     if st.button("💾 Save & Continue ➡️"):
-        user_data[username]["water_profile"] = {"daily_goal": daily_goal, "frequency": selected_frequency}
+        user_data[username]["water_profile"] = {
+            "daily_goal": daily_goal,
+            "frequency": selected_frequency
+        }
         save_user_data(user_data)
         st.success("✅ Water profile saved successfully!")
         go_to_page("home")
+
     st.markdown("<br>", unsafe_allow_html=True)
+
+    # Reset
     if st.button("🔄 Reset Page", key="reset_water_profile"):
         reset_page_inputs_session()
+
 
 # -------------------------------
 # THIRSTY CUP - Full Screen Game Page (FULL with Shop)
@@ -1439,30 +1470,31 @@ elif st.session_state.page == "home":
 
                 save_user_data(user_data)
 
-                # speak the entered amount via Web Speech
+                # -----------------------------
+                # FIXED TTS: Water Intake Audio
+                # -----------------------------
                 safe_ml = str(int(ml)) if ml.is_integer() else str(ml)
                 speak_text = f"Added {safe_ml} milliliters of water."
-                # if completed goal, add congrats
                 if st.session_state.total_intake >= daily_goal and not st.session_state.last_goal_completed_at:
                     st.session_state.last_goal_completed_at = datetime.now().isoformat()
                     speak_text += " Congratulations! You have completed your daily goal!"
 
-                # inject JS TTS snippet (best-effort)
-                tts_html = f"""
-                <script>
-                (function(){{
-                    try {{
-                        const utter = new SpeechSynthesisUtterance("{speak_text.replace('"','\\"')}");
-                        utter.rate = 1.0; utter.pitch = 1.0;
-                        window.speechSynthesis.cancel();
-                        window.speechSynthesis.speak(utter);
-                    }} catch(e) {{
-                        console.warn("TTS failed", e);
-                    }}
-                }})();
-                </script>
+                iframe_tts = f"""
+                <iframe srcdoc="
+                    <script>
+                        try {{
+                            const u = new SpeechSynthesisUtterance('{speak_text.replace("'", "\\'")}');
+                            u.rate = 1.0;
+                            u.pitch = 1.0;
+                            window.speechSynthesis.speak(u);
+                        }} catch(e) {{
+                            console.log('TTS error:', e);
+                        }}
+                    </script>
+                "></iframe>
                 """
-                st.components.v1.html(tts_html, height=10)
+                st.components.v1.html(iframe_tts, height=0)
+                # -----------------------------
 
                 st.rerun()
                 st.stop()
@@ -1524,6 +1556,7 @@ elif st.session_state.page == "home":
         new_color = st.color_picker("Choose a background color:", st.session_state.get("background_color", "#FFFFFF"))
         st.session_state.background_color = new_color
         st.success("Background color updated!")
+
 
 # -------------------------------
 # QUIZ PAGE
@@ -1641,4 +1674,5 @@ elif st.session_state.page == "quiz":
 # -------------------------------
 # (The rest of the code for report and streak already included earlier in your parts.)
 # End of file
+
 
