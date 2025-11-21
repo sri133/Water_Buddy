@@ -778,6 +778,7 @@ if st.button("🔄 Reset Page", key="reset_settings"):
 # WATER INTAKE PAGE
 # -------------------------------
 elif st.session_state.page == "water_profile":
+
     # RESET GATE (MUST BE FIRST)
     if st.session_state.get("just_reset"):
         st.session_state.just_reset = False
@@ -786,29 +787,39 @@ elif st.session_state.page == "water_profile":
     if not st.session_state.logged_in:
         go_to_page("login")
 
-
     set_background()
     username = st.session_state.username
     ensure_user_structures(username)
+
     saved = user_data.get(username, {}).get("water_profile", {})
     ai_goal = user_data.get(username, {}).get("ai_water_goal", 2.5)
 
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Intake</h1>", unsafe_allow_html=True)
     st.success(f"Your ideal daily water intake is **{ai_goal} L/day** 💧")
 
+    # ------------------
+    # INPUT WIDGETS
+    # ------------------
     daily_goal = st.slider(
         "Set your daily water goal (L):",
         0.5, 10.0, float(ai_goal), 0.1,
         key="water_profile_daily_goal"
     )
+
     frequency_options = [f"{i} minutes" for i in range(5, 185, 5)]
+
     selected_frequency = st.selectbox(
         "🔔 Reminder Frequency:",
         frequency_options,
-        index=frequency_options.index(saved.get("frequency", "30 minutes")) if saved.get("frequency") else frequency_options.index("30 minutes"),
+        index=frequency_options.index(saved.get("frequency", "30 minutes"))
+        if saved.get("frequency")
+        else frequency_options.index("30 minutes"),
         key="water_profile_frequency"
     )
 
+    # ------------------
+    # SAVE BUTTON
+    # ------------------
     if st.button("💾 Save & Continue ➡️"):
         user_data[username]["water_profile"] = {
             "daily_goal": daily_goal,
@@ -816,25 +827,30 @@ elif st.session_state.page == "water_profile":
         }
         user_data[username]["ai_water_goal"] = daily_goal
         save_user_data(user_data)
+
         st.success("✅ Water profile saved successfully!")
         go_to_page("home")
-        
-        if st.button("🔄 Reset Page", key="reset_water_profile"):
-    # 1. Reset saved water profile in DB
-    user_data[username]["water_profile"] = {
-        "daily_goal": 0.0,
-        "frequency": "30 minutes"
-    }
-    save_user_data(user_data)
 
-    # 2. Clear widget keys
-    for key in ["water_profile_daily_goal", "water_profile_frequency"]:
-        st.session_state.pop(key, None)
+    # ------------------
+    # RESET BUTTON (FIXED)
+    # ------------------
+    if st.button("🔄 Reset Page", key="reset_water_profile"):
 
-    st.success("Water intake reset!")
-    st.rerun()
+        # 1. Reset database values
+        user_data[username]["water_profile"] = {
+            "daily_goal": 0.0,
+            "frequency": "30 minutes"
+        }
+        save_user_data(user_data)
 
+        # 2. Clear widget values
+        st.session_state["water_profile_daily_goal"] = 0.0
+        st.session_state["water_profile_frequency"] = "30 minutes"
 
+        # 3. Show message + refresh
+        st.success("🔄 Water intake page reset!")
+        st.session_state.just_reset = True
+        st.rerun()
 
 
 # -------------------------------
@@ -2015,6 +2031,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
