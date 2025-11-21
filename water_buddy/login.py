@@ -1542,49 +1542,39 @@ elif st.session_state.page == "home":
     if st.button("🧠 Take Today's Quiz"):
         go_to_page("quiz")
 
-    # -------------------------------
-    # GEMINI CHATBOT FUNCTIONAL
-    # -------------------------------
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+   # -------------------------------
+# GEMINI CHATBOT FUNCTIONAL
+# -------------------------------
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    st.markdown("""
-        <div style='position:fixed; bottom:20px; right:20px; z-index:9999;'>
-            <button id="chat_toggle" style='background:#1A73E8; color:white; border:none; border-radius:50%; width:60px; height:60px; font-size:24px; cursor:pointer;'>🤖</button>
-            <div id="chat_box" style='display:none; width:320px; height:400px; background:white; border:2px solid #1A73E8; border-radius:10px; margin-bottom:10px; overflow:auto;'>
-                <div id="chat_content" style='padding:10px; height:340px; overflow-y:auto;'>
-                    """, unsafe_allow_html=True)
+st.markdown("<br><br>", unsafe_allow_html=True)
 
-    # Display chat history
-    for msg in st.session_state.chat_history:
-        if msg["role"] == "user":
-            st.markdown(f"<div style='text-align:right;'><b>You:</b> {msg['text']}</div>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div style='text-align:left;'><b>Buddy:</b> {msg['text']}</div>", unsafe_allow_html=True)
+# Chat toggle UI
+st.markdown("""
+    <div style='position:fixed; bottom:20px; right:20px; z-index:9999;'>
+        <button id="chat_toggle" style='background:#1A73E8; color:white; border:none; border-radius:50%; width:60px; height:60px; font-size:24px; cursor:pointer;'>🤖</button>
+        <div id="chat_box" style='display:none; width:320px; height:400px; background:white; border:2px solid #1A73E8; border-radius:10px; margin-bottom:10px; overflow:auto; padding:10px;'>
 
-    st.markdown("""
-                </div>
-                <form method="post">
-                    <input name="chat_input" type="text" placeholder='Ask Water Buddy...' style='width:100%; height:40px; border:1px solid #ccc; padding:5px;' />
-                    <input type="submit" style='display:none;' />
-                </form>
-            </div>
-        </div>
-        <script>
-            const chatToggle = document.getElementById('chat_toggle');
-            const chatBox = document.getElementById('chat_box');
-            chatToggle.onclick = function(){{
-                chatBox.style.display = chatBox.style.display==='none' ? 'block' : 'none';
-            }}
-        </script>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-    # Handle chat input
-    chat_input = st.experimental_get_query_params().get("chat_input", [""])[0]
-    if chat_input:
+# Display chat history
+for msg in st.session_state.chat_history:
+    if msg["role"] == "user":
+        st.markdown(f"<div style='text-align:right;'><b>You:</b> {msg['text']}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div style='text-align:left;'><b>Buddy:</b> {msg['text']}</div>", unsafe_allow_html=True)
+
+st.markdown("</div></div>", unsafe_allow_html=True)
+
+# Streamlit input for chat (no HTML form)
+chat_input = st.text_input("Ask Water Buddy anything about hydration:", key="chat_input")
+if st.button("Send", key="chat_send"):
+    user_msg = chat_input.strip()
+    if user_msg:
+        st.session_state.chat_history.append({"role": "user", "text": user_msg})
         if model:
-            prompt = f"You are Water Buddy. Answer user's question about hydration.\nUser: {chat_input}\nBuddy:"
+            prompt = f"You are Water Buddy. Answer user's question about hydration.\nUser: {user_msg}\nBuddy:"
             try:
                 response = model.generate_content(prompt)
                 reply = response.text.strip()
@@ -1592,9 +1582,9 @@ elif st.session_state.page == "home":
                 reply = f"Error: {e}"
         else:
             reply = "Gemini not configured."
-        st.session_state.chat_history.append({"role": "user", "text": chat_input})
         st.session_state.chat_history.append({"role": "assistant", "text": reply})
-        st.exprimental_rerun()
+        st.experimental_rerun()
+
 
 # -------------------------------
 # QUIZ PAGE
@@ -2064,6 +2054,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
