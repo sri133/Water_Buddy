@@ -5,6 +5,8 @@
 import streamlit as st
 from streamlit.components.v1 import html as st_html
 import json
+import firebase_admin
+from firebase_admin import credentials, firestore
 import os
 import pycountry
 import re
@@ -26,6 +28,13 @@ import base64
 import matplotlib.pyplot as plt
 import numpy as np
 
+if "firebase_initialized" not in st.session_state:
+    firebase_json = json.loads(st.secrets["FIREBASE_JSON"])
+    cred = credentials.Certificate(firebase_json)
+    firebase_admin.initialize_app(cred)
+    st.session_state.firebase_initialized = True
+
+db = firestore.client()
 # -----------------------------------------
 # ADD THIS FUNCTION RIGHT HERE
 # -----------------------------------------
@@ -1290,6 +1299,13 @@ elif st.session_state.page == "home":
     """
     st.markdown(bottle_html, unsafe_allow_html=True)
 
+
+    if st.button("Test Firestore"):
+    db.collection("test").document("example").set({
+        "message": "Firestore connection successful!",
+    })
+    st.success("Data saved!")
+
     # ---------------------------------
     # 🔄 RESET BUTTON (Empty the Bottle)
     # ---------------------------------
@@ -1957,6 +1973,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
