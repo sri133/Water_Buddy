@@ -5,8 +5,6 @@
 import streamlit as st
 from streamlit.components.v1 import html as st_html
 import json
-import firebase_admin
-from firebase_admin import credentials, firestore
 import os
 import pycountry
 import re
@@ -293,12 +291,6 @@ def get_location_from_ip():
     return None
 
 @st.cache_data(ttl=300)
-
-def time_in_range(start: dtime, end: dtime, check: dtime) -> bool:
-    if start <= end:
-        return start <= check <= end
-    else:
-        return check >= start or check <= end
 def get_current_temperature_c(lat: float, lon: float) -> Optional[float]:
     try:
         url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true&timezone=UTC"
@@ -328,6 +320,12 @@ def read_current_temperature_c() -> Optional[float]:
     if loc:
         return get_current_temperature_c(loc["lat"], loc["lon"])
     return None
+
+def time_in_range(start: dtime, end: dtime, check: dtime) -> bool:
+    if start <= end:
+        return start <= check <= end
+    else:
+        return check >= start or check <= end
 
 def is_within_reminder_window(frequency_minutes: int, tolerance_minutes: int = 5) -> bool:
     india_tz = pytz.timezone("Asia/Kolkata")
@@ -1959,6 +1957,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
