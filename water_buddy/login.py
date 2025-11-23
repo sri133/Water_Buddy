@@ -1299,13 +1299,6 @@ elif st.session_state.page == "home":
     """
     st.markdown(bottle_html, unsafe_allow_html=True)
 
-
-    if st.button("Test Firestore"):
-    db.collection("test").document("example").set({
-        "message": "Firestore connection successful!",
-    })
-    st.success("Data saved!")
-
     # ---------------------------------
     # 🔄 RESET BUTTON (Empty the Bottle)
     # ---------------------------------
@@ -1394,6 +1387,12 @@ elif st.session_state.page == "home":
             st.session_state.total_intake = 0.0
             st.session_state.water_intake_log = []
             go_to_page("login")
+            
+    if st.button("Test Firestore"):
+    db.collection("test").document("example").set({
+        "message": "Firestore connection successful!",
+    })
+    st.success("Data saved!")
 
     if st.button("🧠 Take Today's Quiz"):
         go_to_page("quiz")
@@ -1973,6 +1972,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
