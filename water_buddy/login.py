@@ -630,17 +630,22 @@ if st.session_state.page == "login":
     mascot = choose_mascot_and_message("login", st.session_state.username or "")
     render_mascot_inline(mascot)
     st.markdown('<p style="font-size:14px; color:gray;">Sign up first, then login with your credentials.</p>', unsafe_allow_html=True)
-    
-    import streamlit as st
 
-if st.button("🚀 Test Firestore Connection"):
-    try:
-        db.collection("test").document("example").set({
-            "message": "Firestore connection successful!",
-        })
-        st.success("🎉 Data saved to Firestore!")
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
+    # -------------------------------
+    # FIRESTORE TEST BUTTON (NEW)
+    # -------------------------------
+    st.write("---")
+    st.subheader("Firestore Test")
+
+    if st.button("🚀 Test Firestore Connection"):
+        try:
+            db.collection("test").document("example").set({
+                "message": "Firestore connection successful!",
+            })
+            st.success("🎉 Data saved to Firestore!")
+        except Exception as e:
+            st.error(f"❌ Error: {e}")
+
 
 # -------------------------------
 # PERSONAL SETTINGS PAGE
