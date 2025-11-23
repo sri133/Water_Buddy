@@ -623,14 +623,16 @@ if st.session_state.page == "login":
     st.markdown('<p style="font-size:14px; color:gray;">Sign up first, then login with your credentials.</p>', unsafe_allow_html=True)
 
 # -------------------------------
-# PERSONAL SETTINGS PAGE
+# PERSONAL SETTINGS PAGE (FIXED)
 # -------------------------------
 elif st.session_state.page == "settings":
     if not st.session_state.logged_in:
         go_to_page("login")
+
     set_background()
     username = st.session_state.username
     ensure_user_structures(username)
+
     saved = user_data.get(username, {}).get("profile", {})
 
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Personal Settings</h1>", unsafe_allow_html=True)
@@ -638,38 +640,48 @@ elif st.session_state.page == "settings":
     # Inputs
     name = st.text_input("Name", value=saved.get("Name", username), key="settings_name")
     age = st.text_input("Age", value=saved.get("Age", ""), key="settings_age")
+
     country = st.selectbox(
         "Country",
         countries,
-        index=countries.index(saved.get("Country", "India")) if saved.get("Country") else countries.index("India"),
+        index=countries.index(saved.get("Country", "India")),
         key="settings_country"
     )
+
     language = st.text_input("Language", value=saved.get("Language", ""), key="settings_language")
+
     height_unit = st.radio("Height Unit", ["cm", "feet"], horizontal=True, key="settings_height_unit")
     height = st.number_input(
         f"Height ({height_unit})",
         value=float(saved.get("Height", "0").split()[0]) if "Height" in saved else 0.0,
         key="settings_height"
     )
+
     weight_unit = st.radio("Weight Unit", ["kg", "lbs"], horizontal=True, key="settings_weight_unit")
     weight = st.number_input(
         f"Weight ({weight_unit})",
         value=float(saved.get("Weight", "0").split()[0]) if "Weight" in saved else 0.0,
         key="settings_weight"
     )
+
+    # BMI FUNCTION
     def calculate_bmi(weight, height, weight_unit, height_unit):
         if height_unit == "feet":
             height_m = height * 0.3048
         else:
             height_m = height / 100
+
         if weight_unit == "lbs":
             weight_kg = weight * 0.453592
         else:
             weight_kg = weight
+
         return round(weight_kg / (height_m ** 2), 2) if height_m > 0 else 0
+
     bmi = calculate_bmi(weight, height, weight_unit, height_unit)
     st.write(f"**Your BMI is:** {bmi}")
 
+    # More inputs
     health_condition = st.radio(
         "Health condition",
         ["Excellent", "Fair", "Poor"],
@@ -677,9 +689,14 @@ elif st.session_state.page == "settings":
         index=["Excellent", "Fair", "Poor"].index(saved.get("Health Condition", "Excellent")),
         key="settings_health_condition"
     )
-    health_problems = st.text_area("Health problems", value=saved.get("Health Problems", ""), key="settings_health_problems")
 
-    old_profile = user_data.get(username, {}).get("profile", {})
+    health_problems = st.text_area(
+        "Health problems",
+        value=saved.get("Health Problems", ""),
+        key="settings_health_problems"
+    )
+
+    # Build new profile data
     new_profile_data = {
         "Name": name,
         "Age": age,
@@ -692,19 +709,37 @@ elif st.session_state.page == "settings":
         "Health Problems": health_problems,
     }
 
+    # SAVE BUTTON
     if st.button("Save & Continue ➡️"):
         ensure_user_structures(username)
+
+        # Save profile info
         user_data[username]["profile"] = new_profile_data
-        user_data[username].setdefault("water_profile", {"daily_goal": 2.5, "frequency": "30 minutes"})
+
+        # Create water profile ONLY if it doesn't exist
+        if "water_profile" not in user_data[username]:
+            user_data[username]["water_profile"] = {
+                "daily_goal": 2.5,
+                "frequency": "30 minutes"
+            }
+
+        # AI goal must be saved only when generated (put your Gemini calculation here)
+        # Example:
+        # user_data[username]["ai_water_goal"] = calculated_goal
+
         save_user_data(user_data)
-        st.success(f"✅ Profile saved! Water Buddy suggests {user_data[username].get('ai_water_goal',2.5)} L/day 💧")
+
+        st.success("✅ Profile saved successfully!")
         go_to_page("water_profile")
 
+    # RESET BUTTON
     if st.button("🔄 Reset Page", key="reset_settings"):
         reset_page_inputs_session()
 
+
+
 # -------------------------------
-# WATER INTAKE PAGE
+# WATER INTAKE PAGE (FIXED)
 # -------------------------------
 elif st.session_state.page == "water_profile":
     if not st.session_state.logged_in:
@@ -713,38 +748,45 @@ elif st.session_state.page == "water_profile":
     set_background()
     username = st.session_state.username
     ensure_user_structures(username)
-    saved = user_data.get(username, {}).get("water_profile", {})
-    ai_goal = user_data.get(username, {}).get("ai_water_goal", 2.5)
+
+    saved = user_data[username].get("water_profile", {})
+    ai_goal = user_data[username].get("ai_water_goal", 2.5)
 
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Intake</h1>", unsafe_allow_html=True)
     st.success(f"Your ideal daily water intake is **{ai_goal} L/day** 💧")
 
+    # Load saved daily goal first, fallback to AI goal only if none saved
     daily_goal = st.slider(
         "Set your daily water goal (L):",
-        0.5, 10.0, float(ai_goal), 0.1,
+        0.5, 10.0,
+        float(saved.get("daily_goal", ai_goal)),
+        0.1,
         key="water_profile_daily_goal"
     )
+
     frequency_options = [f"{i} minutes" for i in range(5, 185, 5)]
+
     selected_frequency = st.selectbox(
         "🔔 Reminder Frequency:",
         frequency_options,
-        index=frequency_options.index(saved.get("frequency", "30 minutes")) if saved.get("frequency") else frequency_options.index("30 minutes"),
+        index=frequency_options.index(saved.get("frequency", "30 minutes")),
         key="water_profile_frequency"
     )
 
+    # SAVE BUTTON
     if st.button("💾 Save & Continue ➡️"):
         user_data[username]["water_profile"] = {
             "daily_goal": daily_goal,
             "frequency": selected_frequency
         }
+
+        # Save updated AI goal (user modified)
         user_data[username]["ai_water_goal"] = daily_goal
+
         save_user_data(user_data)
+
         st.success("✅ Water profile saved successfully!")
         go_to_page("home")
-
-    if st.button("🔄 Reset Page", key="reset_water_profile"):
-        reset_page_inputs_session()
-
 
 
 # -------------------------------
@@ -1940,6 +1982,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
