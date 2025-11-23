@@ -1290,6 +1290,21 @@ elif st.session_state.page == "home":
     """
     st.markdown(bottle_html, unsafe_allow_html=True)
 
+    # ---------------------------------
+    # 🔄 RESET BUTTON (Empty the Bottle)
+    # ---------------------------------
+    if st.button("🔄 Reset Bottle"):
+        # Reset session values
+        st.session_state.total_intake = 0.0
+        st.session_state.water_intake_log = []
+
+        # Reset DB value for today
+        user_data[username]["daily_intake"][today_str] = 0.0
+        save_user_data(user_data)
+
+        st.success("Bottle is now empty! 💧")
+        st.rerun()
+
     # Water intake input
     st.write("---")
     water_input = st.text_input("Enter water amount (in ml):", key="water_input")
@@ -1366,13 +1381,13 @@ elif st.session_state.page == "home":
 
     if st.button("🧠 Take Today's Quiz"):
         go_to_page("quiz")
-          # -----------------------------
-    # MASCOT INLINE
-    # -----------------------------
+
+    # Mascot
     mascot = choose_mascot_and_message("home", username)
     render_mascot_inline(mascot)
 
-    st.markdown('<p style="font-size:14px; color:gray;">Use a calibrated water bottle for correct measurements.</p>', unsafe_allow_html=True)
+    st.markdown('<p style="font-size:14px; color:gray;">Use a calibrated water bottle for correct measurements.</p>',
+                unsafe_allow_html=True)
 
     # -----------------------------
     # THIRSTY CUP GAME BUTTON
@@ -1942,6 +1957,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
