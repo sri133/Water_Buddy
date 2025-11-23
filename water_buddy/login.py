@@ -332,35 +332,6 @@ def get_location_from_ip():
     return None
 
 @st.cache_data(ttl=300)
-def get_current_temperature_c(lat: float, lon: float) -> Optional[float]:
-    try:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true&timezone=UTC"
-        resp = requests.get(url, timeout=4)
-        if resp.status_code == 200:
-            j = resp.json()
-            cw = j.get("current_weather")
-            if cw and "temperature" in cw:
-                return float(cw["temperature"])
-    except Exception:
-        pass
-    return None
-
-def read_current_temperature_c() -> Optional[float]:
-    try:
-        if "CURRENT_TEMPERATURE_C" in st.secrets:
-            return float(st.secrets["CURRENT_TEMPERATURE_C"])
-    except Exception:
-        pass
-    try:
-        t = os.getenv("CURRENT_TEMPERATURE_C")
-        if t:
-            return float(t)
-    except Exception:
-        pass
-    loc = get_location_from_ip()
-    if loc:
-        return get_current_temperature_c(loc["lat"], loc["lon"])
-    return None
 
 def time_in_range(start: dtime, end: dtime, check: dtime) -> bool:
     if start <= end:
@@ -1998,6 +1969,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
