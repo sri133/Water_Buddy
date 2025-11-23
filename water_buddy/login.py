@@ -663,22 +663,6 @@ if st.session_state.page == "login":
     render_mascot_inline(mascot)
     st.markdown('<p style="font-size:14px; color:gray;">Sign up first, then login with your credentials.</p>', unsafe_allow_html=True)
 
-    # -------------------------------
-    # FIRESTORE TEST BUTTON (NEW)
-    # -------------------------------
-    st.write("---")
-    st.subheader("Firestore Test")
-
-    if st.button("🚀 Test Firestore Connection"):
-        try:
-            db.collection("test").document("example").set({
-                "message": "Firestore connection successful!",
-            })
-            st.success("🎉 Data saved to Firestore!")
-        except Exception as e:
-            st.error(f"❌ Error: {e}")
-
-
 # -------------------------------
 # PERSONAL SETTINGS PAGE
 # -------------------------------
@@ -2014,6 +1998,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
