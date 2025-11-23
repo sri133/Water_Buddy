@@ -13,5 +13,7 @@ playsound==1.2.2
 streamlit-option-menu
 streamlit-extras
 pygame
+firebase-admin==6.4.0
+google-cloud-firestore==2.11.0
 
 
