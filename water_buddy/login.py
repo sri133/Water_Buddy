@@ -623,7 +623,7 @@ if st.session_state.page == "login":
     st.markdown('<p style="font-size:14px; color:gray;">Sign up first, then login with your credentials.</p>', unsafe_allow_html=True)
 
 # -------------------------------
-# PERSONAL SETTINGS PAGE (FIXED)
+# PERSONAL SETTINGS PAGE (with Gemini AI goal calculation)
 # -------------------------------
 elif st.session_state.page == "settings":
     if not st.session_state.logged_in:
@@ -637,14 +637,14 @@ elif st.session_state.page == "settings":
 
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Personal Settings</h1>", unsafe_allow_html=True)
 
-    # Inputs
+    # Inputs (same keys as before so reset/page state stays consistent)
     name = st.text_input("Name", value=saved.get("Name", username), key="settings_name")
     age = st.text_input("Age", value=saved.get("Age", ""), key="settings_age")
 
     country = st.selectbox(
         "Country",
         countries,
-        index=countries.index(saved.get("Country", "India")),
+        index=countries.index(saved.get("Country", "India")) if saved.get("Country") in countries else countries.index("India"),
         key="settings_country"
     )
 
@@ -653,50 +653,48 @@ elif st.session_state.page == "settings":
     height_unit = st.radio("Height Unit", ["cm", "feet"], horizontal=True, key="settings_height_unit")
     height = st.number_input(
         f"Height ({height_unit})",
-        value=float(saved.get("Height", "0").split()[0]) if "Height" in saved else 0.0,
+        value=float(saved.get("Height", "0").split()[0]) if "Height" in saved and saved.get("Height") else 0.0,
         key="settings_height"
     )
 
     weight_unit = st.radio("Weight Unit", ["kg", "lbs"], horizontal=True, key="settings_weight_unit")
     weight = st.number_input(
         f"Weight ({weight_unit})",
-        value=float(saved.get("Weight", "0").split()[0]) if "Weight" in saved else 0.0,
+        value=float(saved.get("Weight", "0").split()[0]) if "Weight" in saved and saved.get("Weight") else 0.0,
         key="settings_weight"
     )
 
-    # BMI FUNCTION
-    def calculate_bmi(weight, height, weight_unit, height_unit):
-        if height_unit == "feet":
-            height_m = height * 0.3048
-        else:
-            height_m = height / 100
+    # BMI calculation
+    def calculate_bmi(weight_val, height_val, w_unit, h_unit):
+        try:
+            if h_unit == "feet":
+                height_m = height_val * 0.3048
+            else:
+                height_m = height_val / 100.0
 
-        if weight_unit == "lbs":
-            weight_kg = weight * 0.453592
-        else:
-            weight_kg = weight
+            if w_unit == "lbs":
+                weight_kg = weight_val * 0.453592
+            else:
+                weight_kg = weight_val
 
-        return round(weight_kg / (height_m ** 2), 2) if height_m > 0 else 0
+            return round(weight_kg / (height_m ** 2), 2) if height_m > 0 else 0
+        except Exception:
+            return 0
 
     bmi = calculate_bmi(weight, height, weight_unit, height_unit)
     st.write(f"**Your BMI is:** {bmi}")
 
-    # More inputs
     health_condition = st.radio(
         "Health condition",
         ["Excellent", "Fair", "Poor"],
         horizontal=True,
-        index=["Excellent", "Fair", "Poor"].index(saved.get("Health Condition", "Excellent")),
+        index=["Excellent", "Fair", "Poor"].index(saved.get("Health Condition", "Excellent")) if saved.get("Health Condition") in ["Excellent", "Fair", "Poor"] else 0,
         key="settings_health_condition"
     )
 
-    health_problems = st.text_area(
-        "Health problems",
-        value=saved.get("Health Problems", ""),
-        key="settings_health_problems"
-    )
+    health_problems = st.text_area("Health problems", value=saved.get("Health Problems", ""), key="settings_health_problems")
 
-    # Build new profile data
+    # Build the profile dict we will save
     new_profile_data = {
         "Name": name,
         "Age": age,
@@ -709,37 +707,79 @@ elif st.session_state.page == "settings":
         "Health Problems": health_problems,
     }
 
-    # SAVE BUTTON
+    # SAVE BUTTON: compute AI goal, save profile + ai_water_goal, create water_profile only if missing
     if st.button("Save & Continue ➡️"):
         ensure_user_structures(username)
 
-        # Save profile info
+        # Save profile
         user_data[username]["profile"] = new_profile_data
 
-        # Create water profile ONLY if it doesn't exist
+        # Prepare a fallback ai goal
+        calculated_goal = 2.5
+
+        # Build prompt for Gemini (returns only a number ideally)
+        prompt = f"""
+        Based on the user's profile below, calculate the ideal daily water intake in liters.
+        Return ONLY a single number (e.g., 3.2) with a decimal if needed — no units, no extra text.
+
+        Age: {age}
+        Country: {country}
+        Height: {height} {height_unit}
+        Weight: {weight} {weight_unit}
+        BMI: {bmi}
+        Health condition: {health_condition}
+        Health problems: {health_problems}
+        """
+
+        # Call Gemini model if available; model variable assumed from earlier init
+        try:
+            if model is not None:
+                # using the same interface you used earlier — adjust if your model API differs
+                ai_response = model.generate_content(prompt)
+                # ai_response.text or ai_response.content depending on SDK; handle both
+                resp_text = ""
+                if hasattr(ai_response, "text"):
+                    resp_text = ai_response.text
+                elif hasattr(ai_response, "content"):
+                    # sometimes the SDK returns structured content
+                    try:
+                        # content might be list/dict; attempt to stringify sensibly
+                        resp_text = ai_response.content[0].text if isinstance(ai_response.content, list) and hasattr(ai_response.content[0], "text") else str(ai_response.content)
+                    except Exception:
+                        resp_text = str(ai_response.content)
+                else:
+                    resp_text = str(ai_response)
+
+                # Clean and parse a float from the response
+                cleaned = resp_text.strip()
+                # Keep only first token that looks like a number (handles "3.2" or "3" or "3.2 liters")
+                import re
+                m = re.search(r"([0-9]+(?:\.[0-9]+)?)", cleaned)
+                if m:
+                    calculated_goal = float(m.group(1))
+                else:
+                    calculated_goal = 2.5
+        except Exception as e:
+            # On any failure, fallback to default
+            calculated_goal = 2.5
+
+        # Ensure water_profile exists only if missing; do NOT clobber existing user choice
         if "water_profile" not in user_data[username]:
             user_data[username]["water_profile"] = {
-                "daily_goal": 2.5,
+                "daily_goal": calculated_goal,
                 "frequency": "30 minutes"
             }
 
-        # AI goal must be saved only when generated (put your Gemini calculation here)
-        # Example:
-        # user_data[username]["ai_water_goal"] = calculated_goal
+        # Save the AI-calculated goal so Water page can use it as fallback or display
+        user_data[username]["ai_water_goal"] = calculated_goal
 
         save_user_data(user_data)
 
-        st.success("✅ Profile saved successfully!")
+        st.success(f"✅ Profile saved! 💧 AI calculated your ideal intake: {calculated_goal} L/day")
         go_to_page("water_profile")
 
-    # RESET BUTTON
-    if st.button("🔄 Reset Page", key="reset_settings"):
-        reset_page_inputs_session()
-
-
-
 # -------------------------------
-# WATER INTAKE PAGE (FIXED)
+# WATER INTAKE PAGE (uses saved value first, fallback to AI goal)
 # -------------------------------
 elif st.session_state.page == "water_profile":
     if not st.session_state.logged_in:
@@ -749,45 +789,54 @@ elif st.session_state.page == "water_profile":
     username = st.session_state.username
     ensure_user_structures(username)
 
-    saved = user_data[username].get("water_profile", {})
-    ai_goal = user_data[username].get("ai_water_goal", 2.5)
+    # Safely load saved water_profile and ai goal
+    saved = user_data.get(username, {}).get("water_profile", {})
+    ai_goal = user_data.get(username, {}).get("ai_water_goal", 2.5)
 
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Intake</h1>", unsafe_allow_html=True)
     st.success(f"Your ideal daily water intake is **{ai_goal} L/day** 💧")
 
-    # Load saved daily goal first, fallback to AI goal only if none saved
+    # Use saved daily_goal if present, otherwise ai_goal
+    initial_daily = saved.get("daily_goal", ai_goal)
+    try:
+        initial_daily = float(initial_daily)
+    except Exception:
+        initial_daily = float(ai_goal)
+
     daily_goal = st.slider(
         "Set your daily water goal (L):",
         0.5, 10.0,
-        float(saved.get("daily_goal", ai_goal)),
+        initial_daily,
         0.1,
         key="water_profile_daily_goal"
     )
 
     frequency_options = [f"{i} minutes" for i in range(5, 185, 5)]
+    # Determine index safely
+    default_freq = saved.get("frequency", "30 minutes")
+    freq_index = frequency_options.index(default_freq) if default_freq in frequency_options else frequency_options.index("30 minutes")
 
     selected_frequency = st.selectbox(
         "🔔 Reminder Frequency:",
         frequency_options,
-        index=frequency_options.index(saved.get("frequency", "30 minutes")),
+        index=freq_index,
         key="water_profile_frequency"
     )
 
-    # SAVE BUTTON
     if st.button("💾 Save & Continue ➡️"):
+        # Save the explicit choice the user made
         user_data[username]["water_profile"] = {
             "daily_goal": daily_goal,
             "frequency": selected_frequency
         }
 
-        # Save updated AI goal (user modified)
+        # Update ai_water_goal to reflect user's chosen goal (keeps consistency)
         user_data[username]["ai_water_goal"] = daily_goal
 
         save_user_data(user_data)
 
         st.success("✅ Water profile saved successfully!")
         go_to_page("home")
-
 
 # -------------------------------
 # THIRSTY CUP - Full Screen Game Page (FULL with Shop)
@@ -1982,6 +2031,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
