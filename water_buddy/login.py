@@ -28,8 +28,40 @@ import base64
 import matplotlib.pyplot as plt
 import numpy as np
 
+# -------------------------------
+# SAFE FIREBASE LOADER
+# -------------------------------
+def load_firebase_json_from_secrets():
+    raw = st.secrets.get("FIREBASE_JSON")
+    if raw is None:
+        raise RuntimeError("FIREBASE_JSON not found in st.secrets")
+
+    # Try normal load
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        # Fix common issues
+        s = raw.strip()
+
+        # Remove triple quotes if present
+        if (s.startswith('"""') and s.endswith('"""')) or (s.startswith("'''") and s.endswith("'''")):
+            s = s[3:-3].strip()
+
+        # Remove single/double surrounding quotes
+        if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
+            s = s[1:-1]
+
+        # Replace escaped newlines with real newlines
+        s = s.replace("\\n", "\n")
+
+        # Try again
+        return json.loads(s)
+
+# -------------------------------
+# INITIALIZE FIREBASE ONCE
+# -------------------------------
 if "firebase_initialized" not in st.session_state:
-    firebase_json = json.loads(st.secrets["FIREBASE_JSON"])
+    firebase_json = load_firebase_json_from_secrets()
     cred = credentials.Certificate(firebase_json)
     firebase_admin.initialize_app(cred)
     st.session_state.firebase_initialized = True
@@ -1982,6 +2014,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
