@@ -706,6 +706,7 @@ elif st.session_state.page == "settings":
         # ---------------------------
         with st.spinner("💧 Water Buddy is calculating your perfect daily water intake..."):
             if model:
+                # Clear, strict prompt asking for ONLY a numeric value
                 prompt = f"""
                 You are a medical hydration assistant.
                 Calculate the ideal daily water intake (in liters) for this user.
@@ -719,31 +720,31 @@ elif st.session_state.page == "settings":
                 Health condition: {health_condition}
                 Health problems: {health_problems}
 
-                Return ONLY one numeric value in liters.
-                Example: 3.2
-                Do NOT add any words.
+                Return ONLY one numeric value in liters (example: 3.2). Do NOT add words or units.
                 """
 
                 try:
                     response = model.generate_content(prompt)
+                    raw = response.text.strip()
 
-                    # Show raw output for debugging
-                    st.write("Gemini raw output:", response.text)
+                    # Optional debug: uncomment to display raw model output
+                    # st.write("Gemini raw output:", raw)
 
+                    # Safe extraction of first numeric token (handles "3.2 liters" etc.)
                     import re
-                    match = re.search(r'\d+(\.\d+)?', response.text)
+                    match = re.search(r'\d+(\.\d+)?', raw)
                     if match:
                         ai_goal = float(match.group())
                     else:
                         ai_goal = 2.5
-                except:
+                except Exception:
                     ai_goal = 2.5
             else:
                 ai_goal = 2.5
 
         user_data[username]["ai_water_goal"] = ai_goal
 
-        # Default water profile
+        # Default water profile if missing
         user_data[username].setdefault(
             "water_profile",
             {"daily_goal": ai_goal, "frequency": "30 minutes"}
@@ -793,6 +794,7 @@ elif st.session_state.page == "water_profile":
         save_user_data(user_data)
         st.success("✅ Water profile saved successfully!")
         go_to_page("home")
+
 
 
 # -------------------------------
@@ -1988,6 +1990,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
