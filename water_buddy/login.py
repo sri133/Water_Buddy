@@ -682,7 +682,6 @@ elif st.session_state.page == "settings":
     )
     health_problems = st.text_area("Health problems", value=saved.get("Health Problems", ""), key="settings_health_problems")
 
-    old_profile = user_data.get(username, {}).get("profile", {})
     new_profile_data = {
         "Name": name,
         "Age": age,
@@ -695,49 +694,63 @@ elif st.session_state.page == "settings":
         "Health Problems": health_problems,
     }
 
-    # SAVE BUTTON (WITH GEMINI WATER CALC)
+    # -----------------------------------------
+    # SAVE BUTTON WITH GEMINI AI CALCULATION
+    # -----------------------------------------
     if st.button("Save & Continue ➡️"):
         ensure_user_structures(username)
         user_data[username]["profile"] = new_profile_data
 
         # ---------------------------
-        # 🔵 GEMINI WATER GOAL AI CALCULATION
+        # 🔵 GEMINI WATER GOAL CALCULATION
         # ---------------------------
-        if model:
-            prompt = f"""
-            You are a medical hydration assistant.
-            Calculate the ideal daily water intake (in liters) for this user.
+        with st.spinner("💧 Water Buddy is calculating your perfect daily water intake..."):
+            if model:
+                prompt = f"""
+                You are a medical hydration assistant.
+                Calculate the ideal daily water intake (in liters) for this user.
 
-            User Profile:
-            Age: {age}
-            Country: {country}
-            Height: {height} {height_unit}
-            Weight: {weight} {weight_unit}
-            BMI: {bmi}
-            Health condition: {health_condition}
-            Health problems: {health_problems}
+                User Profile:
+                Age: {age}
+                Country: {country}
+                Height: {height} {height_unit}
+                Weight: {weight} {weight_unit}
+                BMI: {bmi}
+                Health condition: {health_condition}
+                Health problems: {health_problems}
 
-            Return ONLY a number in liters (example: 3.2).
-            """
+                Return ONLY one numeric value in liters.
+                Example: 3.2
+                Do NOT add any words.
+                """
 
-            try:
-                response = model.generate_content(prompt)
-                ai_goal = float(response.text.strip())
-            except:
+                try:
+                    response = model.generate_content(prompt)
+
+                    # Show raw output for debugging
+                    st.write("Gemini raw output:", response.text)
+
+                    import re
+                    match = re.search(r'\d+(\.\d+)?', response.text)
+                    if match:
+                        ai_goal = float(match.group())
+                    else:
+                        ai_goal = 2.5
+                except:
+                    ai_goal = 2.5
+            else:
                 ai_goal = 2.5
-        else:
-            ai_goal = 2.5
 
         user_data[username]["ai_water_goal"] = ai_goal
 
-        # Default water profile if first time
+        # Default water profile
         user_data[username].setdefault(
             "water_profile",
             {"daily_goal": ai_goal, "frequency": "30 minutes"}
         )
 
         save_user_data(user_data)
-        st.success(f"✅ Profile saved! Water Buddy suggests {ai_goal} L/day 💧")
+        st.success(f"✅ Profile saved! Water Buddy suggests **{ai_goal} L/day** 💧")
         go_to_page("water_profile")
 
 
@@ -762,6 +775,7 @@ elif st.session_state.page == "water_profile":
         0.5, 10.0, float(ai_goal), 0.1,
         key="water_profile_daily_goal"
     )
+
     frequency_options = [f"{i} minutes" for i in range(5, 185, 5)]
     selected_frequency = st.selectbox(
         "🔔 Reminder Frequency:",
@@ -779,6 +793,7 @@ elif st.session_state.page == "water_profile":
         save_user_data(user_data)
         st.success("✅ Water profile saved successfully!")
         go_to_page("home")
+
 
 # -------------------------------
 # THIRSTY CUP - Full Screen Game Page (FULL with Shop)
@@ -1973,6 +1988,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
