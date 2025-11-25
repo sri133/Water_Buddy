@@ -640,9 +640,11 @@ elif st.session_state.page == "settings":
 
     name = st.text_input("Name", value=saved.get("Name", username), key="settings_name")
     age = st.text_input("Age", value=saved.get("Age", ""), key="settings_age")
-    country = st.selectbox("Country", countries,
-                           index=countries.index(saved.get("Country", "India")) if saved.get("Country") else countries.index("India"),
-                           key="settings_country")
+    country = st.selectbox(
+        "Country", countries,
+        index=countries.index(saved.get("Country", "India")) if saved.get("Country") else countries.index("India"),
+        key="settings_country"
+    )
     language = st.text_input("Language", value=saved.get("Language", ""), key="settings_language")
 
     st.write("---")
@@ -661,20 +663,10 @@ elif st.session_state.page == "settings":
         key="settings_weight"
     )
 
-
     def calculate_bmi(weight, height, weight_unit, height_unit):
-        if height_unit == "feet":
-            height_m = height * 0.3048
-        else:
-            height_m = height / 100
-
-        if weight_unit == "lbs":
-            weight_kg = weight * 0.453592
-        else:
-            weight_kg = weight
-
+        height_m = height * 0.3048 if height_unit == "feet" else height / 100
+        weight_kg = weight * 0.453592 if weight_unit == "lbs" else weight
         return round(weight_kg / (height_m ** 2), 2) if height_m > 0 else 0
-
 
     bmi = calculate_bmi(weight, height, weight_unit, height_unit)
     st.write(f"**Your BMI is:** {bmi}")
@@ -716,18 +708,18 @@ elif st.session_state.page == "settings":
 
                 prompt = f"""
                 You are Water Buddy, a smart hydration assistant.
-                Based on the user's health information, calculate daily water intake needed.
-                
-                Return ONLY one JSON object:
+
+                Based on this user's personal health information, calculate and return ONLY a JSON object:
+
                 {{"goal_liters": number}}
 
                 User Info:
-                Age: {age}
-                Height: {height} {height_unit}
-                Weight: {weight} {weight_unit}
-                BMI: {bmi}
-                Health condition: {health_condition}
-                Health problems: {health_problems if health_problems else "None"}
+                - Age: {age}
+                - Height: {height} {height_unit}
+                - Weight: {weight} {weight_unit}
+                - BMI: {bmi}
+                - Health condition: {health_condition}
+                - Health problems: {health_problems if health_problems else "None"}
                 """
 
                 try:
@@ -735,45 +727,33 @@ elif st.session_state.page == "settings":
                         response = model.generate_content(prompt)
                         text_output = response.text.strip()
 
-                        # JSON extraction improved
-                        match_json = re.search(r"\{[^}]*\}", text_output)
+                        match_json = re.search(r'\{(.|\n)*?\}', text_output)
                         if match_json:
                             data = json.loads(match_json.group(0))
-                            suggested_water_intake = float(data.get("goal_liters", 2.5))
+                            suggested_water_intake = float(data["goal_liters"])
                         else:
-                            # Any numeric extraction
                             match_num = re.search(r"(\d+(\.\d+)?)", text_output)
-                            if match_num:
-                                suggested_water_intake = float(match_num.group(1))
-                            else:
-                                raise ValueError("No numeric water intake found in model output")
+                            suggested_water_intake = float(match_num.group(1)) if match_num else 2.5
+
                     else:
-                        raise RuntimeError("Gemini model not configured")
+                        raise RuntimeError("Model not configured")
 
                 except Exception as e:
                     st.warning(f"⚠️ Water Buddy suggestion failed — using default 2.5 L ({e})")
                     suggested_water_intake = 2.5
-                    text_output = f"Error: {e}"
-
-        else:
-            text_output = "Profile unchanged — using previous goal."
 
         ensure_user_structures(username)
         user_data[username]["profile"] = new_profile_data
         user_data[username]["ai_water_goal"] = round(suggested_water_intake, 2)
         user_data[username].setdefault("water_profile", {"daily_goal": suggested_water_intake, "frequency": "30 minutes"})
         user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
+        user_data[username].setdefault("daily_intake", user_data[username].get("daily_intake", {}))
+        user_data[username].setdefault("weekly_data", user_data[username].get("weekly_data", {"week_start": None, "days": {}}))
 
         save_user_data(user_data)
 
-        st.success(f"✅ Profile saved! Water Buddy suggests {suggested_water_intake:.2f} L/day 💧")
-        st.info(f"Water Buddy output: {text_output}")
-
+        st.success(f"💧 Profile saved! Suggested: {suggested_water_intake:.2f} L/day")
         go_to_page("water_profile")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🔄 Reset Page", key="reset_settings"):
-        reset_page_inputs_session()
 
 
 # -------------------------------
@@ -794,19 +774,16 @@ elif st.session_state.page == "water_profile":
 
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Intake</h1>", unsafe_allow_html=True)
 
-    st.success(f"Your ideal daily water intake is **{ai_goal} L/day**, suggested by Water Buddy 💧")
+    st.success(f"Your ideal water intake is **{ai_goal} L/day**")
 
-    daily_goal = st.slider("Set your daily water goal (L):", 0.5, 10.0, float(ai_goal), 0.1, key="water_profile_daily_goal")
-
+    daily_goal = st.slider("Set daily water goal (L):", 0.5, 10.0, float(ai_goal), 0.1)
     frequency_options = [f"{i} minutes" for i in range(5, 185, 5)]
-    selected_frequency = st.selectbox("🔔 Reminder Frequency:", frequency_options,
-                                      index=frequency_options.index(saved.get("frequency", "30 minutes")),
-                                      key="water_profile_frequency")
+    selected_frequency = st.selectbox("🔔 Reminder Frequency:", frequency_options, index=frequency_options.index(saved.get("frequency", "30 minutes")))
 
     if st.button("💾 Save & Continue ➡️"):
         user_data[username]["water_profile"] = {"daily_goal": daily_goal, "frequency": selected_frequency}
         save_user_data(user_data)
-        st.success("✅ Water profile saved successfully!")
+        st.success("Saved successfully!")
         go_to_page("home")
 
 
@@ -2004,6 +1981,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
