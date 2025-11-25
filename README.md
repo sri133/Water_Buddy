@@ -1,128 +1,81 @@
-🌊 WaterBuddy – Smart Hydration Web App (Streamlit + Firebase + AI + FCM Notifications)
+**WaterBuddy – Smart Hydration Web App (Streamlit + Firebase + AI + FCM Notifications)**
 
-A complete hydration tracking system built with Streamlit, Firebase, Gamification, AI (Gemini), and now Firebase Cloud Messaging (Push Notifications).
+"A complete hydration tracking system built with Streamlit, Firebase, Gamification, AI (Gemini), and now Firebase Cloud Messaging (Push Notifications)"
 
-📌 Table of Contents
+**Table of Contents**
 
-Overview
+1. Overview
+2. Problem Statement
+3. Solution
+4. Objectives
+5. Features
+6. Technology Stack
+7. System Architecture
+8. Project Structure
+9. Firebase Setup
+10. FCM Push Notification Setup ✅ NEW
+11. How to Run Locally
+12. Detailed Feature Explanation
+13. Water Recommendation Logic
+14. Pages Explanation
+15. Database Structure
+16. Challenges & Solutions
+17. Future Enhancements
+18. Output Screenshots
+19. Conclusion
 
-Problem Statement
+🔷 **1. Overview**
 
-Solution
+1. WaterBuddy is a smart hydration–tracking web application designed to help users monitor their daily water intake using Streamlit, Firebase, AI (Gemini), Gamification, and FCM Notifications.
 
-Objectives
+2. The system automatically calculates recommended daily intake, tracks progress, provides weekly reports, and motivates users with streaks, medals, notifications, and animations.
 
-Features
+🔷 **2. Problem Statement**
 
-Technology Stack
+1. Most individuals struggle to drink sufficient water due to:
+2. Lack of awareness
+3. No continuous monitoring
+4. Low motivation
+5. No reminders
+6. Therefore, a system is required that tracks, reminds, educates, and motivates users.
 
-System Architecture
+🔷 **3. Solution**
 
-Project Structure
+1. WaterBuddy addresses these challenges by:
+2. Tracking daily water intake
+3. Using AI to personalize daily goals
+4. Providing weekly analytics
+5. Including gamification rewards
+6. Sending real-time hydration reminders using FCM Push Notifications
+7. Storing all user data in Firebase
 
-Firebase Setup
+🔷 **4. Objectives**
 
-FCM Push Notification Setup ✅ NEW
+1. Build healthy hydration habits
+2. Provide personalized goals
+3. Track daily, weekly & monthly progress
+4. Motivate through gamification
+5. Send hydration reminders via notifications
+6. Offer clean, mobile-friendly UI
+   
+**🔷 6. Technology Stack
+Frontend / Backend**
 
-How to Run Locally
-
-Detailed Feature Explanation
-
-Water Recommendation Logic
-
-Pages Explanation
-
-Database Structure
-
-Challenges & Solutions
-
-Future Enhancements
-
-Output Screenshots
-
-Conclusion
-
-🔷 1. Overview
-
-WaterBuddy is a smart hydration–tracking web application designed to help users monitor their daily water intake using Streamlit, Firebase, AI (Gemini), Gamification, and FCM Notifications.
-
-The system automatically calculates recommended daily intake, tracks progress, provides weekly reports, and motivates users with streaks, medals, notifications, and animations.
-
-🔷 2. Problem Statement
-
-Most individuals struggle to drink sufficient water due to:
-
-Lack of awareness
-
-No continuous monitoring
-
-Low motivation
-
-No reminders
-
-Therefore, a system is required that tracks, reminds, educates, and motivates users.
-
-🔷 3. Solution
-
-WaterBuddy addresses these challenges by:
-
-Tracking daily water intake
-
-Using AI to personalize daily goals
-
-Providing weekly analytics
-
-Including gamification rewards
-
-Sending real-time hydration reminders using FCM Push Notifications
-
-Storing all user data in Firebase
-
-🔷 4. Objectives
-
-Build healthy hydration habits
-
-Provide personalized goals
-
-Track daily, weekly & monthly progress
-
-Motivate through gamification
-
-Send hydration reminders via notifications
-
-Offer clean, mobile-friendly UI
-🔷 6. Technology Stack
-Frontend / Backend
-
-Python
-
-Streamlit
-
-Database
-
-Firebase Realtime Database
-
-APIs
-
-Google Gemini AI
-
-Firebase Cloud Messaging (FCM)
-
-Visualization
-
-Plotly
-
-Matplotlib
-
-Storage
-
-Local JSON file + Firebase sync
-
-Browser Notifications
-
-firebase.js
-
-messaging-sw.js
+1. Python
+2. Streamlit
+3. Database
+4. Firebase Realtime Database
+5. APIs
+6. Google Gemini AI
+7. Firebase Cloud Messaging (FCM)
+8. Visualization
+9. Plotly
+10. Matplotlib
+11. Storage
+12. Local JSON file + Firebase sync
+13. Browser Notifications
+14. firebase.js
+15. messaging-sw.js
 
 🔷 7. System Architecture
 User
@@ -154,9 +107,7 @@ WaterBuddy/
 
 🔷 9. Firebase Setup
 
-(Your same instructions remain unchanged.)
-
-🔷 9.1 FCM Push Notification Setup (NEW 🆕)
+   9.1 FCM Push Notification Setup (NEW 🆕)
 
 To enable hydration reminders, integrate Firebase Cloud Messaging.
 
