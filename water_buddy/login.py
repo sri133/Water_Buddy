@@ -623,14 +623,14 @@ if st.session_state.page == "login":
     st.markdown('<p style="font-size:14px; color:gray;">Sign up first, then login with your credentials.</p>', unsafe_allow_html=True)
 
 # -------------------------------
-# PERSONAL SETTINGS PAGE (unchanged behaviour)
+# PERSONAL SETTINGS PAGE (fixed Gemini calculation)
 # -------------------------------
 elif st.session_state.page == "settings":
 
     if not st.session_state.logged_in:
         go_to_page("login")
 
-    set_background()   # <-- add here
+    set_background()
 
     username = st.session_state.username
     ensure_user_structures(username)
@@ -638,27 +638,24 @@ elif st.session_state.page == "settings":
 
     st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Personal Settings</h1>", unsafe_allow_html=True)
 
-    name = st.text_input("Name", value=saved.get("Name", username), key="settings_name")
-    age = st.text_input("Age", value=saved.get("Age", ""), key="settings_age")
+    name = st.text_input("Name", value=saved.get("Name", username))
+    age = st.text_input("Age", value=saved.get("Age", ""))
     country = st.selectbox("Country", countries,
-                           index=countries.index(saved.get("Country", "India")) if saved.get("Country") else countries.index("India"),
-                           key="settings_country")
-    language = st.text_input("Language", value=saved.get("Language", ""), key="settings_language")
+                           index=countries.index(saved.get("Country", "India")))
+    language = st.text_input("Language", value=saved.get("Language", ""))
 
     st.write("---")
 
-    height_unit = st.radio("Height Unit", ["cm", "feet"], horizontal=True, key="settings_height_unit")
+    height_unit = st.radio("Height Unit", ["cm", "feet"], horizontal=True)
     height = st.number_input(
         f"Height ({height_unit})",
-        value=float(saved.get("Height", "0").split()[0]) if "Height" in saved else 0.0,
-        key="settings_height"
+        value=float(saved.get("Height", "0").split()[0]) if "Height" in saved else 0.0
     )
 
-    weight_unit = st.radio("Weight Unit", ["kg", "lbs"], horizontal=True, key="settings_weight_unit")
+    weight_unit = st.radio("Weight Unit", ["kg", "lbs"], horizontal=True)
     weight = st.number_input(
         f"Weight ({weight_unit})",
-        value=float(saved.get("Weight", "0").split()[0]) if "Weight" in saved else 0.0,
-        key="settings_weight"
+        value=float(saved.get("Weight", "0").split()[0]) if "Weight" in saved else 0.0
     )
 
     def calculate_bmi(weight, height, weight_unit, height_unit):
@@ -678,14 +675,11 @@ elif st.session_state.page == "settings":
     st.write(f"**Your BMI is:** {bmi}")
 
     health_condition = st.radio(
-        "Health condition",
-        ["Excellent", "Fair", "Poor"],
-        horizontal=True,
-        index=["Excellent", "Fair", "Poor"].index(saved.get("Health Condition", "Excellent")),
-        key="settings_health_condition"
+        "Health condition", ["Excellent", "Fair", "Poor"], horizontal=True,
+        index=["Excellent", "Fair", "Poor"].index(saved.get("Health Condition", "Excellent"))
     )
 
-    health_problems = st.text_area("Health problems", value=saved.get("Health Problems", ""), key="settings_health_problems")
+    health_problems = st.text_area("Health problems", value=saved.get("Health Problems", ""))
 
     st.write("---")
 
@@ -707,7 +701,6 @@ elif st.session_state.page == "settings":
 
         recalc_needed = new_profile_data != old_profile
         suggested_water_intake = user_data.get(username, {}).get("ai_water_goal", 2.5)
-
         text_output = ""
 
         if recalc_needed:
@@ -715,48 +708,36 @@ elif st.session_state.page == "settings":
 
                 prompt = f"""
                 You are Water Buddy, a smart hydration assistant.
+                Respond ONLY in this JSON EXACT format, no extra text:
+                {{"goal_liters": <number>}}
 
-                Based on this user's personal health information, calculate and
-                return ONLY a JSON object with one key:
-
-                "goal_liters": <number of liters per day>
-
-                Example:
-                {{"goal_liters": 3.2}}
-
-                Do not include any text or explanation outside JSON.
-
-                User Info:
-                - Age: {age}
-                - Height: {height} {height_unit}
-                - Weight: {weight} {weight_unit}
-                - BMI: {bmi}
-                - Health condition: {health_condition}
-                - Health problems: {health_problems if health_problems else "None"}
+                Based on:
+                Age: {age}
+                Height: {height} {height_unit}
+                Weight: {weight} {weight_unit}
+                BMI: {bmi}
+                Health condition: {health_condition}
+                Health problems: {health_problems if health_problems else "None"}
                 """
 
                 try:
-                    if model:
-                        response = model.generate_content(prompt)
-                        text_output = response.text.strip()
+                    response = model.generate_content(prompt)
+                    text_output = response.text.strip()
 
-                        # Try parsing JSON first
-                        match_json = re.search(r'\{.*\}', text_output)
-                        if match_json:
-                            data = json.loads(match_json.group(0))
-                            suggested_water_intake = float(data.get("goal_liters", 2.5))
-                        else:
-                            # Fallback: extract number from plain text
-                            match_num = re.search(r"(\d+(\.\d+)?)", text_output)
-                            if match_num:
-                                suggested_water_intake = float(match_num.group(1))
-                            else:
-                                raise ValueError("No numeric value found in Gemini output.")
+                    # Extract JSON safely
+                    json_str = re.search(r'\{(?:[^{}]|(?R))*\}', text_output)
+                    if json_str:
+                        parsed = json.loads(json_str.group(0))
+                        suggested_water_intake = float(parsed.get("goal_liters", 2.5))
                     else:
-                        raise RuntimeError("Gemini model not configured")
+                        nums = re.findall(r"\d+\.\d+|\d+", text_output)
+                        if nums:
+                            suggested_water_intake = float(nums[0])
+                        else:
+                            raise ValueError("JSON not found")
 
                 except Exception as e:
-                    st.warning(f"⚠️ Water Buddy suggestion failed — using default 2.5 L ({e})")
+                    st.warning(f"⚠️Calculation failed — using default 2.5 L/day ({e})")
                     suggested_water_intake = 2.5
                     text_output = f"Error: {e}"
 
@@ -768,65 +749,17 @@ elif st.session_state.page == "settings":
         user_data[username]["ai_water_goal"] = round(suggested_water_intake, 2)
         user_data[username].setdefault("water_profile", {"daily_goal": suggested_water_intake, "frequency": "30 minutes"})
         user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
-        user_data[username].setdefault("daily_intake", user_data[username].get("daily_intake", {}))
-        user_data[username].setdefault("weekly_data", user_data[username].get("weekly_data", {"week_start": None, "days": {}}))
-
         save_user_data(user_data)
 
-        st.success(f"✅ Profile saved! Water Buddy suggests {suggested_water_intake:.2f} L/day 💧")
-        st.info(f"Water Buddy output: {text_output}")
-
+        st.success(f"💧 Water Buddy recommends **{suggested_water_intake:.2f} L/day**")
+        st.info(f"Output: {text_output}")
         go_to_page("water_profile")
 
 
-    # Reset button (bottom)
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🔄 Reset Page", key="reset_settings"):
+    if st.button("🔄 Reset Page"):
         reset_page_inputs_session()
 
-
-# -------------------------------
-# WATER INTAKE PAGE
-# -------------------------------
-elif st.session_state.page == "water_profile":
-
-    if not st.session_state.logged_in:
-        go_to_page("login")
-
-    set_background()   # <-- add here
-
-    username = st.session_state.username
-    ensure_user_structures(username)
-
-    ai_goal = user_data.get(username, {}).get("ai_water_goal", 2.5)
-    saved = user_data.get(username, {}).get("water_profile", {})
-
-    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Intake</h1>", unsafe_allow_html=True)
-
-    st.success(f"Your ideal daily water intake is **{ai_goal} L/day**, as suggested by Water Buddy 💧")
-
-    daily_goal = st.slider(
-        "Set your daily water goal (L):",
-        0.5, 10.0, float(ai_goal), 0.1,
-        key="water_profile_daily_goal"
-    )
-
-    frequency_options = [f"{i} minutes" for i in range(5, 185, 5)]
-    selected_frequency = st.selectbox(
-        "🔔 Reminder Frequency:",
-        frequency_options,
-        index=frequency_options.index(saved.get("frequency", "30 minutes")),
-        key="water_profile_frequency"
-    )
-
-    if st.button("💾 Save & Continue ➡️"):
-        user_data[username]["water_profile"] = {
-            "daily_goal": daily_goal,
-            "frequency": selected_frequency
-        }
-        save_user_data(user_data)
-        st.success("✅ Water profile saved successfully!")
-        go_to_page("home")
 
 # -------------------------------
 # THIRSTY CUP - Full Screen Game Page (FULL with Shop)
@@ -2021,6 +1954,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
