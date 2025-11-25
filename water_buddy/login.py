@@ -760,6 +760,50 @@ elif st.session_state.page == "settings":
     if st.button("🔄 Reset Page"):
         reset_page_inputs_session()
 
+# -------------------------------
+# WATER INTAKE PAGE
+# -------------------------------
+elif st.session_state.page == "water_profile":
+
+    if not st.session_state.logged_in:
+        go_to_page("login")
+
+    set_background()   # <-- add here
+
+    username = st.session_state.username
+    ensure_user_structures(username)
+
+    ai_goal = user_data.get(username, {}).get("ai_water_goal", 2.5)
+    saved = user_data.get(username, {}).get("water_profile", {})
+
+    st.markdown("<h1 style='text-align:center; color:#1A73E8;'>💧 Water Intake</h1>", unsafe_allow_html=True)
+
+    st.success(f"Your ideal daily water intake is **{ai_goal} L/day**, as suggested by Water Buddy 💧")
+
+    daily_goal = st.slider(
+        "Set your daily water goal (L):",
+        0.5, 10.0, float(ai_goal), 0.1,
+        key="water_profile_daily_goal"
+    )
+
+    frequency_options = [f"{i} minutes" for i in range(5, 185, 5)]
+    selected_frequency = st.selectbox(
+        "🔔 Reminder Frequency:",
+        frequency_options,
+        index=frequency_options.index(saved.get("frequency", "30 minutes")),
+        key="water_profile_frequency"
+    )
+
+    if st.button("💾 Save & Continue ➡️"):
+        user_data[username]["water_profile"] = {
+            "daily_goal": daily_goal,
+            "frequency": selected_frequency
+        }
+        save_user_data(user_data)
+        st.success("✅ Water profile saved successfully!")
+        go_to_page("home")
+
+
 
 # -------------------------------
 # THIRSTY CUP - Full Screen Game Page (FULL with Shop)
@@ -1954,6 +1998,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
