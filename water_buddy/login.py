@@ -661,22 +661,27 @@ elif st.session_state.page == "settings":
         key="settings_weight"
     )
 
+
     def calculate_bmi(weight, height, weight_unit, height_unit):
         if height_unit == "feet":
             height_m = height * 0.3048
         else:
             height_m = height / 100
+
         if weight_unit == "lbs":
             weight_kg = weight * 0.453592
         else:
             weight_kg = weight
+
         return round(weight_kg / (height_m ** 2), 2) if height_m > 0 else 0
+
 
     bmi = calculate_bmi(weight, height, weight_unit, height_unit)
     st.write(f"**Your BMI is:** {bmi}")
 
     health_condition = st.radio(
-        "Health condition", ["Excellent", "Fair", "Poor"],
+        "Health condition",
+        ["Excellent", "Fair", "Poor"],
         horizontal=True,
         index=["Excellent", "Fair", "Poor"].index(saved.get("Health Condition", "Excellent")),
         key="settings_health_condition"
@@ -704,7 +709,6 @@ elif st.session_state.page == "settings":
 
         recalc_needed = new_profile_data != old_profile
         suggested_water_intake = user_data.get(username, {}).get("ai_water_goal", 2.5)
-
         text_output = ""
 
         if recalc_needed:
@@ -712,14 +716,12 @@ elif st.session_state.page == "settings":
 
                 prompt = f"""
                 You are Water Buddy, a smart hydration assistant.
+                Based on the user's health information, calculate daily water intake needed.
+                
+                Return ONLY one JSON object:
+                {{"goal_liters": number}}
 
-                Based on this user's personal health information, calculate and return ONLY a JSON object with:
-                "goal_liters": <number>
-
-                Example:
-                {{"goal_liters": 3.2}}
-
-                USER INFO:
+                User Info:
                 Age: {age}
                 Height: {height} {height_unit}
                 Weight: {weight} {weight_unit}
@@ -731,21 +733,20 @@ elif st.session_state.page == "settings":
                 try:
                     if model:
                         response = model.generate_content(prompt)
+                        text_output = response.text.strip()
 
-                        # correct extraction for Gemini response
-                        text_output = response.candidates[0].content.parts[0].text.strip()
-
-                        match_json = re.search(r'\{.*\}', text_output)
+                        # JSON extraction improved
+                        match_json = re.search(r"\{[^}]*\}", text_output)
                         if match_json:
                             data = json.loads(match_json.group(0))
                             suggested_water_intake = float(data.get("goal_liters", 2.5))
                         else:
+                            # Any numeric extraction
                             match_num = re.search(r"(\d+(\.\d+)?)", text_output)
                             if match_num:
                                 suggested_water_intake = float(match_num.group(1))
                             else:
-                                raise ValueError("No numeric value found in response.")
-
+                                raise ValueError("No numeric water intake found in model output")
                     else:
                         raise RuntimeError("Gemini model not configured")
 
@@ -755,15 +756,13 @@ elif st.session_state.page == "settings":
                     text_output = f"Error: {e}"
 
         else:
-            text_output = "Profile unchanged — previous goal used."
+            text_output = "Profile unchanged — using previous goal."
 
         ensure_user_structures(username)
         user_data[username]["profile"] = new_profile_data
         user_data[username]["ai_water_goal"] = round(suggested_water_intake, 2)
         user_data[username].setdefault("water_profile", {"daily_goal": suggested_water_intake, "frequency": "30 minutes"})
         user_data[username].setdefault("streak", {"completed_days": [], "current_streak": 0})
-        user_data[username].setdefault("daily_intake", user_data[username].get("daily_intake", {}))
-        user_data[username].setdefault("weekly_data", user_data[username].get("weekly_data", {"week_start": None, "days": {}}))
 
         save_user_data(user_data)
 
@@ -771,7 +770,6 @@ elif st.session_state.page == "settings":
         st.info(f"Water Buddy output: {text_output}")
 
         go_to_page("water_profile")
-
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Reset Page", key="reset_settings"):
@@ -2006,6 +2004,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
