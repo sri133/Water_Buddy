@@ -578,6 +578,9 @@ def grade_quiz_and_explain(quiz, answers):
             "explanation": explanation
         })
     return results, score
+def get_daily_quiz():
+    username = st.session_state.username
+    return generate_quiz_via_model(username)
 
 # -------------------------------
 # Reset helper (safe)
@@ -600,9 +603,6 @@ def reset_page_inputs_session():
     st.session_state.quiz_results = None
     st.session_state.quiz_score = 0
     st.rerun()
-def get_daily_quiz():
-    username = st.session_state.username
-    return generate_quiz_via_model(username)
 
 
 # -------------------------------
@@ -2007,6 +2007,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
