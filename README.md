@@ -10,19 +10,16 @@
 4. Objectives
 5. Features
 6. Technology Stack
+7. Modules and Libraries used
 7. System Architecture
 8. Project Structure
-9. Firebase Setup
-10. FCM Push Notification Setup ✅ NEW
-11. How to Run Locally
-12. Detailed Feature Explanation
-13. Water Recommendation Logic
-14. Pages Explanation
-15. Database Structure
-16. Challenges & Solutions
-17. Future Enhancements
-18. Output Screenshots
-19. Conclusion
+10. Detailed Feature Explanation
+11. Water Recommendation Logic
+12. Pages Explanation
+13. Database Structure
+15. Future Enhancements
+16. Output Screenshots
+17. Conclusion
 
 🔷 **1. Overview**
 
@@ -64,179 +61,151 @@ Frontend / Backend**
 1. Python
 2. Streamlit
 3. Database
-4. Firebase Realtime Database
-5. APIs
-6. Google Gemini AI
-7. Firebase Cloud Messaging (FCM)
-8. Visualization
-9. Plotly
-10. Matplotlib
-11. Storage
-12. Local JSON file + Firebase sync
-13. Browser Notifications
-14. firebase.js
-15. messaging-sw.js
+4. APIs
+5. Google Gemini AI
+6. Visualization
+7. Plotly
+8. Matplotlib
+9. Storage
+10.  Local JSON file and Sqlite
 
-🔷 7. System Architecture
+**🔷 7. Modules and Libraries used:**
+
+**🔵 1. Streamlit**
+import streamlit as st
+from streamlit.components.v1 import html as st_html
+
+Used for building the entire web UI, custom HTML components, animations, and pages.
+
+**🔵 2. JSON & OS Handling**
+import json
+import os
+from pathlib import Path
+
+Used to store/load local water logs, handle file paths, load configuration files, and manage directories.
+
+**🔵 3. Data Processing**
+import pandas as pd
+
+Used for weekly data grouping, data cleaning, tables, and calculations.
+
+**🔵 4. Date & Time**
+from datetime import datetime, date, timedelta, time as dtime
+import calendar
+import time
+import pytz
+
+Used for streaks, daily progress, reminders, date conversions, timezone handling, and weekly summaries.
+
+**🔵 5. Environment Variables**
+from dotenv import load_dotenv
+
+Loads API keys (Gemini, Firebase) securely from .env.
+
+**🔵 6. AI Model (Gemini AI)**
+import google.generativeai as genai
+
+Used for AI hydration recommendations, chatbot assistant, and suggestions.
+
+**🔵 7. Country & Phone Validator**
+import pycountry
+import re
+
+Used for validating inputs, filtering country lists, and regular-expression checks.
+
+**🔵 8. Plotting & Visualizations**
+import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+import numpy as np
+
+Used for weekly charts, gauges, circular progress charts, and visual analytics.
+
+**🔵 9. Database Handling**
+import sqlite3
+
+Used for temporary local storage or caching (if used in your build).
+
+**🔵 10. URL & Requests**
+from urllib.parse import quote
+import requests
+
+Used for external API calls, push notifications, audio file generation, and networking.
+
+**🔵 11. Typing & Validation**
+from typing import Dict, Any, Optional
+
+Used for type annotations and clean function definitions.
+
+**🔵 12. Text-to-Speech**
+from gtts import gTTS
+import base64
+
+Used for generating AI mascot voice messages and embedding audio in Streamlit.
+
+**🔷 7. System Architecture**
 User
    ↓
 Streamlit Frontend
    ↓
-Firebase (Auth + Realtime DB)
+Sqlite and Json
    ↓
 Gemini AI (Daily Goal Recommendation)
    ↓
 Plotly / Matplotlib (Reports)
    ↓
-FCM Push Notifications (Scheduled Reminders)
+Streamlit Notifications (Scheduled Reminders as per the time interval)
 
-🔷 8. Project Structure
-WaterBuddy/
-│── app.py
-│── firebase_config.json
-│── water_data.json
-│── requirements.txt
-│── firebase.js              ← NEW (FCM Config)
-│── messaging-sw.js          ← NEW (Service Worker)
-│── images/
-│     ├── login_bg.png
+**🔷 8. Project Structure**
+water_buddy/
+│── login.py
+│── data/
+│      ├── user.json
+│        ├── user_data.json
+│── requirements.txt                  
+│── assets/
 │     ├── mascot1.png
-│     └── bottle.png
-└── .streamlit/
-      └── secrets.toml
+│     ├── mascot2.png
+│     ├── mascot3.png
+│     ├── mascot9.png
+│     ├── mascot4.png
+│     ├── mascot5.jpg
+│     ├── mascot6.jpg
+│     ├── mascot7.png
+└──   ├── mascot8.png
 
-🔷 9. Firebase Setup
+🔷 10. Detailed Feature Explanation:
 
-   9.1 FCM Push Notification Setup (NEW 🆕)
+🔷 11. Water Recommendation Logic:
 
-To enable hydration reminders, integrate Firebase Cloud Messaging.
+🔷 12. Pages Explanation:
 
-1️⃣ Create Web API Key + Sender ID
+🔷 13. Database Structure:
 
-Go to:
-Firebase Console → Project Settings → Cloud Messaging
-Copy:
-
-Web API Key
-
-Sender ID
-
-VAPID Key
-
-2️⃣ Add firebase.js
-
-Create a file named firebase.js:
-
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging.js";
-
-const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "PROJECT_ID.firebaseapp.com",
-  projectId: "PROJECT_ID",
-  messagingSenderId: "SENDER_ID",
-  appId: "APP_ID",
-};
-
-const app = initializeApp(firebaseConfig);
-const messaging = getMessaging(app);
-
-export function requestPermission() {
-  return Notification.requestPermission().then((permission) => {
-    if (permission === "granted") {
-      return getToken(messaging, { vapidKey: "YOUR_VAPID_KEY" });
-    }
-  });
-}
-
-3️⃣ Add messaging-sw.js (service worker)
-importScripts("https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js");
-importScripts("https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js");
-
-firebase.initializeApp({
-  apiKey: "YOUR_API_KEY",
-  projectId: "PROJECT_ID",
-  messagingSenderId: "SENDER_ID",
-  appId: "APP_ID",
-});
-
-const messaging = firebase.messaging();
-
-messaging.onBackgroundMessage((payload) => {
-  self.registration.showNotification(payload.notification.title, {
-    body: payload.notification.body,
-  });
-});
-
-4️⃣ Store FCM Token in Firebase
-
-Inside Streamlit:
-
-token = js_token_from_browser
-db.reference(f"users/{username}/notification_token").set(token)
-
-5️⃣ Send Notifications
-
-Example Cloud Function:
-
-admin.messaging().sendToDevice(token, {
-  notification: {
-    title: "Hydrate Now 💧",
-    body: "Take a sip! Your body needs water.",
-  }
-});
-
-🔷 10. How to Run Locally
-
-(Your same steps)
-
-🔷 11. Feature Workflows
-
-(Your same content; notifications automatically added to Daily Water Intake and Home Page.)
-
-🔷 12. Water Recommendation Logic
-
-(Your same logic)
 
 🔷 13. Page-by-Page Explanation
 
-Add under Home Page:
+1. Login page:
 
-🔔 Hydration Notifications (NEW)
+2. Personal settings page:
 
-User grants permission
+3. Water intake page:
 
-App registers FCM token
+4. Home page:
 
-Sends reminders every 2–3 hours
+5. Daily streak page:
 
-Works in background
+6. Report page:
 
-🔷 14. Database Structure
+7. Mini reflex game page:
 
-Add:
-
-notification_token: "abc123xyz"
-
-🔷 15. Challenges & Solutions
-Challenge	Solution
-Sending reminders while app is closed	Integrated Firebase Cloud Messaging
-Web push permissions	Added JS + service worker
-Token handling	Stored token per user in Firebase
 🔷 16. Future Enhancements
 
 Add:
-
-Smart AI-based notification timing
-
-Push reminders based on body weight & weather
-
-Geolocation-based hydration alerts
-
-🔷 17. Screenshots
-
-(You will add yourself.)
+1. Smart AI-based notification timing.
+2. Push reminders based on body weight & weather.
+3. Geolocation-based hydration alerts.
+4. Use FireBase for data storage for permanant stroring and for notifications pop-ups even the app is closed or phone is off.
 
 🔷 18. Conclusion
 
-WaterBuddy successfully tracks hydration, motivates users with AI, medals, games, and streaks, and now includes real-time push notifications through FCM for better user engagement.
+WaterBuddy successfully tracks hydration, motivates users with AI, medals, games, and streaks, and now includes real-time push notifications through streamlit for better user engagement.
