@@ -579,6 +579,28 @@ def grade_quiz_and_explain(quiz, answers):
         })
     return results, score
 
+# -------------------------------
+# Reset helper (safe)
+# -------------------------------
+def reset_page_inputs_session():
+    preserve = {"logged_in", "username", "page"}
+    keys_to_delete = [k for k in list(st.session_state.keys()) if k not in preserve]
+    for k in keys_to_delete:
+        try:
+            del st.session_state[k]
+        except Exception:
+            pass
+    # Reset UI session variables without touching DB
+    st.session_state.total_intake = 0.0
+    st.session_state.water_intake_log = []
+    st.session_state.chat_history = []
+    st.session_state.show_chatbot = False
+    st.session_state.quiz_answers = None
+    st.session_state.quiz_submitted = False
+    st.session_state.quiz_results = None
+    st.session_state.quiz_score = 0
+    st.rerun()
+
 
 # -------------------------------
 # LOGIN PAGE
@@ -1592,6 +1614,7 @@ elif st.session_state.page == "quiz":
         if st.button("🔥 Daily Streak"):
             go_to_page("daily_streak")
 
+
 # -------------------------------
 # REPORT PAGE (Matplotlib Circular Daily Goal + Persistent Data)
 # -------------------------------
@@ -1981,6 +2004,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
