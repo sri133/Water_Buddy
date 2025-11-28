@@ -516,71 +516,151 @@ def render_mascot_inline(mascot: Optional[Dict[str, Any]]):
         st.session_state.mascot_tts_played_for.add(mid)
 
 # -------------------------------
-# Quiz utilities (persistent)
+# QUIZ UTILITIES (FULL + WORKING)
 # -------------------------------
+
+import json
+from datetime import date, datetime
+
+def generate_quiz_fallback():
+    return [
+        {
+            "q": "What percentage of the adult human body is made of water?",
+            "options": ["30%", "50%", "60%", "80%"],
+            "correct_index": 2,
+            "explanation": "About 60% of the adult human body consists of water."
+        },
+        {
+            "q": "Which organ regulates the body’s water balance?",
+            "options": ["Heart", "Kidneys", "Liver", "Lungs"],
+            "correct_index": 1,
+            "explanation": "Kidneys filter blood and control water balance."
+        },
+        {
+            "q": "What is it called when water changes into vapor?",
+            "options": ["Condensation", "Evaporation", "Sublimation", "Distillation"],
+            "correct_index": 1,
+            "explanation": "Evaporation occurs when liquid water turns into vapor."
+        },
+        {
+            "q": "Which molecule is water made of?",
+            "options": ["CO2", "H2", "O2", "H2O"],
+            "correct_index": 3,
+            "explanation": "Water is made of 2 hydrogen atoms and 1 oxygen atom."
+        },
+        {
+            "q": "Where is most of Earth's freshwater found?",
+            "options": ["Rivers", "Groundwater", "Glaciers & Ice caps", "Lakes"],
+            "correct_index": 2,
+            "explanation": "Most freshwater is stored in glaciers and ice caps."
+        },
+        {
+            "q": "How long can a human survive without water?",
+            "options": ["1 day", "3 days", "7 days", "14 days"],
+            "correct_index": 1,
+            "explanation": "Most people survive about 3 days without water."
+        },
+        {
+            "q": "Which civilization first built aqueducts?",
+            "options": ["Egyptians", "Romans", "Greeks", "Mesopotamians"],
+            "correct_index": 1,
+            "explanation": "Romans built advanced aqueduct systems."
+        },
+        {
+            "q": "What is known as the universal solvent?",
+            "options": ["Alcohol", "Oil", "Water", "Acid"],
+            "correct_index": 2,
+            "explanation": "Water dissolves more substances than any other liquid."
+        },
+        {
+            "q": "What percentage of Earth is covered with water?",
+            "options": ["40%", "60%", "71%", "85%"],
+            "correct_index": 2,
+            "explanation": "About 71% of Earth's surface is water."
+        },
+        {
+            "q": "How old are the oldest human-made wells?",
+            "options": ["1,000 years", "3,000 years", "6,000 years", "10,000 years"],
+            "correct_index": 2,
+            "explanation": "Wells older than 6,000 years have been found."
+        }
+    ]
+
+
+def get_daily_quiz():
+    username = st.session_state.username
+    return generate_quiz_via_model(username)
+
+
 def generate_quiz_via_model(username):
-    # Check if user already has a quiz for today
-    today_str = date.today().isoformat()
+    today = date.today().isoformat()
+
     ensure_user_structures(username)
     user_quiz_data = user_data[username].setdefault("daily_quiz_data", {})
-    if user_quiz_data.get("date") == today_str and user_quiz_data.get("quiz"):
-        return user_quiz_data["quiz"]
 
-    # Generate new quiz
+    # Return saved quiz if already generated today
+    if user_quiz_data.get("date") == today:
+        return user_quiz_data.get("quiz")
+
     fallback = generate_quiz_fallback()
+
     try:
         if not model:
             quiz = fallback
         else:
             prompt = """
-Generate 10 multiple-choice questions about water (health/hydration facts, water history, and recent water-related news/documentaries).
-Return as valid JSON array only. Each item must be an object with fields:
-- "q": question text
-- "options": array of 4 option strings
-- "correct_index": index of correct option (0..3)
-- "explanation": short explanation (1-2 sentences) why the correct answer is correct.
-Keep each question concise and suitable for general audience.
+Generate 10 multiple-choice questions about water.
+Return ONLY a JSON array. Each question must have:
+- q
+- options (4 items)
+- correct_index
+- explanation
 """
             resp = model.generate_content(prompt)
-            text = resp.text.strip()
-            json_start = text.find("[")
-            json_text = text if json_start == 0 else text[json_start:]
+            raw = resp.text.strip()
+
+            json_start = raw.find("[")
+            json_text = raw if json_start == 0 else raw[json_start:]
+
             data = json.loads(json_text)
             if isinstance(data, list) and len(data) >= 10:
                 quiz = data[:10]
             else:
                 quiz = fallback
-    except Exception:
+    except:
         quiz = fallback
 
-    # Save to user_data for persistence
+    # Save quiz
     user_quiz_data["quiz"] = quiz
-    user_quiz_data["date"] = today_str
+    user_quiz_data["date"] = today
     save_user_data(user_data)
+
     return quiz
+
 
 def grade_quiz_and_explain(quiz, answers):
     results = []
     score = 0
+
     for i, item in enumerate(quiz):
-        correct = item.get("correct_index", 0)
+        correct = item["correct_index"]
         selected = answers[i]
-        is_correct = (selected == correct)
+        is_correct = (correct == selected)
+
         if is_correct:
             score += 1
-        explanation = item.get("explanation") or f"This is correct because '{item['options'][correct]}' is the right answer."
+
         results.append({
             "q": item["q"],
             "options": item["options"],
             "correct_index": correct,
             "selected_index": selected,
             "is_correct": is_correct,
-            "explanation": explanation
+            "explanation": item["explanation"]
         })
+
     return results, score
-def get_daily_quiz():
-    username = st.session_state.username
-    return generate_quiz_via_model(username)
+
 
 # -------------------------------
 # Reset helper (safe)
@@ -2007,6 +2087,7 @@ elif st.session_state.page == "daily_streak":
     # Mascot inline next to streak header / content
     mascot = choose_mascot_and_message("daily_streak", username)
     render_mascot_inline(mascot)
+
 
 
 
