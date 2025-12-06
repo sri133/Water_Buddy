@@ -362,3 +362,8 @@ Add:
 🔷 15. Conclusion
 
 WaterBuddy successfully tracks hydration, motivates users with AI, medals, games, and streaks, and now includes real-time push notifications through streamlit for better user engagement.
+Credits: 
+1. Name:Sri Prasath. P
+2. Grade: IBCP Year1
+3. Course: Python Programming
+4. Mentor: Syed Ali Beema.S
